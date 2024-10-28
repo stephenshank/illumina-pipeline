@@ -1,0 +1,14 @@
+subtype: h5n1
+data_root_directory: "~/BaseSpace"
+trimming:
+  remove_adapters: true  # Remove Illumina adapters from sequence ends
+  min_length: 50  # Discard reads below this length after trimming
+  window_size: 5  # Slide along reads in windows of this size during trimming
+  trim_qscore: 30 # Trim reads using a quality score threshold
+varscan:
+  min_cov: 25  # Minimum coverage for SNP calling
+  snp_qual_threshold: 30  # Base quality threshold for SNP calling
+  snp_frequency: 0.01  # SNP frequency cutoff (e.g., 1% = 0.01)
+  strand_filter: 1  # Implement strand filter for SNV calling (1 = yes, 0 = no)
+consensus:
+  snp_frequency: 0.2 # SNP frequency cutoff (e.g., 1% = 0.01)
