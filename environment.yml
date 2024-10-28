@@ -1,0 +1,20 @@
+name: deep-sequencing
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas=2
+  - altair=5
+  - biopython=1.84
+  - bedtools
+  - bcftools
+  - bowtie2
+  - multiqc
+  - samtools
+  - trimmomatic
+  - snakemake
+  - snpeff
+  - varscan
+  - entrez-direct
