@@ -18,3 +18,4 @@ dependencies:
   - snpeff
   - varscan
   - entrez-direct
+  - seqkit

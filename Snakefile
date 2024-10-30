@@ -18,15 +18,12 @@ with open(os.path.join('data', 'samples.txt')) as samples_file:
 REPLICATES = (1, 2)
 
 
-reference_dictionary = {}
-with open('data/reference/metadata.tsv', 'r', newline='') as tsv_file:
-    reader = csv.DictReader(tsv_file, delimiter='\t')
-    for row in reader:
-        if row['subtype'] == SUBTYPE:
-            reference_dictionary[row['segment_key']] = row
+reference_dictionary = load_reference_dictionary(SUBTYPE)
 SEGMENTS = reference_dictionary.keys()
 
 rule fetch_reference_data:
+    message:
+        'Fetching reference data for segment {wildcards.segment}...'
     output:
         fasta='data/reference/{segment}/sequence.fasta',
         genbank='data/reference/{segment}/metadata.gb'
@@ -51,6 +48,8 @@ rule fetch_reference_data:
         '''
 
 rule build_genbank_reference:
+    message:
+        'Concatenating reference data into single FASTA...'
     input:
         expand(
             'data/reference/{segment}/sequence.fasta',
@@ -62,6 +61,8 @@ rule build_genbank_reference:
         'cat {input} > {output}'
 
 rule genbank_to_gtf:
+    message:
+        'Converting Genbank data to GTF...'
     input:
         rules.fetch_reference_data.output.genbank
     output:
@@ -202,6 +203,8 @@ rule call_variants:
         '''
 
 rule coverage:
+    message:
+        'Computing coverage of replicate {wildcards.replicate} for sample {wildcards.sample}...'
     input:
         rules.samtools.output.sorted_
     output:
@@ -210,11 +213,13 @@ rule coverage:
     shell:
         '''
             echo "segment\tstart\tend\tcoverage" > {output.tsv}
-            bedtools genomecov -ibam {input} -bg > {output.bg}
+            bedtools genomecov -ibam {input} -bga > {output.bg}
             cat {output.bg} >> {output.tsv}
         '''
 
 rule coverage_summary:
+    message:
+        'Computing coverage summary of replicate {wildcards.replicate} for sample {wildcards.sample}...'
     input:
         rules.coverage.output.tsv
     output:
@@ -249,6 +254,8 @@ rule call_consensus:
         '''
 
 rule build_sample_reference:
+    message:
+        'Situating intrasample reference of sample {wildcards.sample} for remapping...'
     input:
         'data/{sample}/replicate-1/initial/consensus.fasta'
     output:
@@ -271,14 +278,13 @@ rule multiqc:
     shell:
         'multiqc -f {params} --outdir {params}'
 
-
 rule clean_varscan:
     message:
         'Cleaning varscan VCF from replicate {wildcards.replicate} of sample {wildcards.sample}...'
     input:
         rules.call_variants.output.tsv
     output:
-        'data/{sample}/replicate-{replicate}/ml.tsv'
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/ml.tsv'
     run:
         df = pd.read_csv(input[0], sep='\t')
         clean_varscan(df).to_csv(output[0], sep='\t')
@@ -288,7 +294,7 @@ rule merge_varscan_across_replicates:
         'Merging variant calls of sample {wildcards.sample}...'
     input:
         expand(
-            'data/{{sample}}/replicate-{replicate}/ml.tsv',
+            'data/{{sample}}/replicate-{replicate}/remapping/ml.tsv',
             replicate=REPLICATES
         )
     output:

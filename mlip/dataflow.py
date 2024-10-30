@@ -14,6 +14,16 @@ def load_config():
     return config
 
 
+def load_reference_dictionary(subtype):
+    reference_dictionary = {}
+    with open('references.tsv', 'r', newline='') as tsv_file:
+        reader = csv.DictReader(tsv_file, delimiter='\t')
+        for row in reader:
+            if row['subtype'] == subtype:
+                reference_dictionary[row['segment_key']] = row
+    return reference_dictionary
+
+
 def situate_basespace_data():
     config = load_config()
     csv_filepaths = list(

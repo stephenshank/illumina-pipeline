@@ -1,0 +1,9 @@
+subtype	segment_key	genbank_accession
+h5n1	ha	OL638145
+h5n1	m	OL638146
+h5n1	na	OL638147
+h5n1	np	OL638148
+h5n1	ns	OL638149
+h5n1	pa	OL638150
+h5n1	pb1	OL638151
+h5n1	pb2	OL638152
