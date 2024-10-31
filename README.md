@@ -17,7 +17,7 @@ cd MyAnalysis
 conda activate mlip
 ```
 
-Make appropriate edits to `config.yaml`. This will most likely `subtype` and `data_root_directory`... be sure you understand conventions and assumptions made about the latter.
+Make appropriate edits to `config.yml`. This will most likely `subtype` and `data_root_directory`... be sure you understand conventions and assumptions made about the latter.
 
 ### Situate data
 
