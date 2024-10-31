@@ -336,3 +336,7 @@ rule full_coverage_summary:
             full_df['1000x+']
 
         full_df.to_csv(output[0], sep='\t', index=False)
+
+rule all:
+    input:
+        rules.full_coverage_summary.output[0]

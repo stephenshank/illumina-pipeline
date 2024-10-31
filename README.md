@@ -29,7 +29,7 @@ python mlip/dataflow.py
 ### Run the pipeline
 
 ```
-snakemake -j $NUMBER_OF_JOBS
+snakemake -j $NUMBER_OF_JOBS all
 ```
 
 After this, `data` should be filled with lots of files of various formats, many which contain relevant virological information.
