@@ -43,7 +43,7 @@ rule fetch_reference_data:
             efetch -db nuccore \
                 -id {params.genbank_accession} \
                 -format fasta \
-            | seqkit replace -p "^(.+)" -r {wildcards.segment}\
+            | seqkit replace -p "^(.+)" -r "{wildcards.segment} genbank"\
                 > {output.fasta}
         '''
 
@@ -127,14 +127,15 @@ rule mapping:
         reverse_unpaired=rules.trimmomatic.output.reverse_unpaired,
         index=lambda wildcards: f'data/{get_sample(wildcards)}/index.1.bt2'
     params:
-        lambda wildcards: f'data/{get_sample(wildcards)}/index'
+        index=lambda wildcards: f'data/{get_sample(wildcards)}/index',
+        sensitivity=lambda wildcards: '--very-sensitive' if wildcards.mapping_stage == 'initial' else ''
     output:
         sam='data/{sample}/replicate-{replicate}/{mapping_stage}/mapped.sam',
         stdout='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stdout.txt',
         stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stderr.txt'
     shell:
         '''
-            bowtie2 -x {params} \
+            bowtie2 {params.sensitivity} -x {params.index} \
                 -1 {input.forward_paired} -2 {input.reverse_paired} \
                 -U {input.forward_unpaired},{input.reverse_unpaired} \
                 --local \
@@ -287,7 +288,7 @@ rule clean_varscan:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/ml.tsv'
     run:
         df = pd.read_csv(input[0], sep='\t')
-        clean_varscan(df).to_csv(output[0], sep='\t')
+        clean_varscan(df).to_csv(output[0], sep='\t', index=False)
 
 rule merge_varscan_across_replicates:
     message:
@@ -340,3 +341,10 @@ rule full_coverage_summary:
 rule all:
     input:
         rules.full_coverage_summary.output[0]
+
+rule clean:
+    shell:
+        '''
+            rm $(find data -type f | grep -v forward.fastq.gz$ | grep -v reverse.fastq.gz)
+            find data -type d -empty -delete
+        '''

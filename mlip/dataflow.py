@@ -144,7 +144,7 @@ def clean_varscan(varscan_df):
         float(format_.split(':')[6][:-1]) / 100
         for format_ in varscan_df['Sample1']
     ]
-    return varscan_df
+    return varscan_df.loc[:, ['#CHROM', 'POS', 'REF', 'ALT', 'Frequency']]
 
 
 def merge_varscan(clean_varscan_dfs):
