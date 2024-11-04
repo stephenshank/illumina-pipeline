@@ -1,9 +1,11 @@
 import os
 import csv
 import shutil
+import re
 from pathlib import Path
 
 from Bio import SeqIO
+from Bio.Seq import Seq
 import pandas as pd
 import yaml
 
@@ -117,7 +119,7 @@ def situate_basespace_data():
         samples_file.write('\n'.join(key_hash.keys()))
 
 
-def genbank_to_gtf(gbk_file, gtf_file):
+def genbank_to_gtf(gbk_file, gtf_file, reference_dictionary):
     with open(gtf_file, 'w') as gtf_out:
         for record in SeqIO.parse(gbk_file, "genbank"):
             for feature in record.features:
@@ -244,6 +246,164 @@ def compute_coverage_categories_io(input_coverage, output_summary):
     coverage_df = pd.read_csv(input_coverage, sep='\t')
     coverage_summary_df = compute_coverage_categories(coverage_df)
     coverage_summary_df.to_csv(output_summary, sep='\t', index=False)
+
+
+def define_coding_regions(gtf_file):
+    with open(gtf_file, "r") as gtf:
+        coding_regions = {}
+
+        for line in gtf:
+            if line.strip("\n") != "":      # ignore blank lines (otherwise throws an index error)
+                sequence_name = line.split("\t")[0]
+                annotation_type = line.split("\t")[2]
+                start = int(line.split("\t")[3]) - 1  # adding the -1 here for 0 indexing
+                stop = int(line.split("\t")[4]) - 1    # adding the -1 here for 0 indexing
+                gene_name = line.split("\t")[8]
+                gene_name = gene_name.split(";")[0]
+                gene_name = gene_name.replace("gene_id ","")
+                gene_name = gene_name.replace("\"","")
+
+                if annotation_type.lower() == "cds":
+                    if sequence_name not in coding_regions:
+                        coding_regions[sequence_name] = {}
+                        coding_regions[sequence_name][gene_name] = [start, stop]
+                    elif sequence_name in coding_regions and gene_name not in coding_regions[sequence_name]:
+                        coding_regions[sequence_name][gene_name] = [start, stop]
+                    elif gene_name in coding_regions[sequence_name]:
+                        coding_regions[sequence_name][gene_name].extend([start, stop])
+
+            # sort coding region coordinates so that they are always in the correct order
+            for sequence_name in coding_regions:
+                for gene in coding_regions[sequence_name]:
+                    coding_regions[sequence_name][gene] = sorted(coding_regions[sequence_name][gene])
+
+    return(coding_regions)
+
+
+amino_acid_abbreviations = {
+    "A": "Ala", "R": "Arg", "N": "Asn", "D": "Asp", "C": "Cys",
+    "Q": "Gln", "E": "Glu", "G": "Gly", "H": "His", "I": "Ile",
+    "L": "Leu", "K": "Lys", "M": "Met", "F": "Phe", "P": "Pro",
+    "O": "Pyl", "S": "Ser", "U": "Sec", "T": "Thr", "W": "Trp",
+    "Y": "Tyr", "V": "Val", "B": "Asx", "Z": "Glx", "U": "Sec",
+    "X": "Xaa", "J": "Xle", "*": "Stop"
+}
+
+
+def slice_fastas(coding_regions, reference_sequence_path):
+    reference_sequence = {}
+
+    for seq in SeqIO.parse(reference_sequence_path, "fasta"):
+        sequence_name = str(seq.id)
+        sequence = str(seq.seq).lower()
+        reference_sequence[sequence_name] = sequence
+
+    transcripts = {}
+    stop_codons = ["taa","tag","tga"]
+    refseqname = 'A sequence'
+
+    for c in coding_regions:
+        for gene in coding_regions[c]:
+            transcripts[gene] = ""
+            coordinates = coding_regions[c][gene]   # define the coding regions for each gene
+
+            for i in range(0,int(len(coordinates)),2):   # go along the coordinates in chunks of 2 at a time
+                sequence_chunk = reference_sequence[c][coordinates[i]:coordinates[i+1]+1]
+                transcripts[gene] += sequence_chunk     # append each piece of the transcript together 
+
+    # loop through each transcript to make sure that it begins with a start codon and ends with a stop codon
+    for t in transcripts:
+        if transcripts[t][0:3] != "atg":
+            print("WARNING! " + refseqname + " " + t + "does not contain a start codon!")
+        if transcripts[t][-3:] not in stop_codons:
+            print("WARNING! " + refseqname + " " + t + " does not contain a stop codon! These are the last 3 nucleotides: " + transcripts[t][-3:])
+
+    return transcripts
+
+
+def annotate_amino_acid_changes(coding_regions, transcripts, vcf, outfilename):
+    with open(vcf, "r") as csvfile:
+        with open(outfilename, "w") as outfile:
+            to_write = ["sample","gene","reference_position","reference_allele","variant_allele","coding_region_change","synonymous/nonsynonymous","frequency(%)","frequency","\n"]
+            to_write2 = "\t".join(to_write)
+            outfile.write(to_write2)
+
+        reader = csv.reader(csvfile, delimiter="\t")
+        for row in reader:
+            # ignore comment lines
+            if "##" not in row[0] and "#CHROM" not in row[0]:
+                sequence_name = row[0]
+                site = int(row[1]) - 1     # to make this 0 indexed
+                reference_allele = row[3].lower()
+                alternative_allele = row[4].lower()
+ 
+                # pull out the frequency using a string search
+                SearchStr = '.+\:([0-9]{1,2}\.{0,1}[0-9]{0,2}\%)'
+                result = re.search(SearchStr,row[9])
+                if result:
+                    frequency = '\t'.join(result.groups())
+                    frequency_decimal = frequency.replace("%","")
+                    frequency_decimal = (float(frequency_decimal))/100
+                    frequency_decimal = "%.4f" % frequency_decimal    # only include 4 numbers after decimal
+
+                else:
+                    frequency = "none reported"
+
+                # figure out whether the SNP lies within a coding region:
+                for gene in coding_regions[sequence_name]:
+                    coordinates = coding_regions[sequence_name][gene]
+
+                    # go through gene coordinates 2 at a time; this is for genes with multiple regions
+                    for i in range(0,int(len(coordinates)),2):
+                        if site >= coordinates[i] and site <= coordinates[i+1]:  # if site is within the gene
+
+                            # determine the coding region site, depending on if there are 2 frames or 1
+                            if len(coordinates) == 2:
+                                cds_site = site - coordinates[i]
+                            elif len(coordinates) == 4:
+                                cds_site = (coordinates[1] - coordinates[0]) + (site - coordinates[2] + 1)
+                            # now determine whether the site is in the 1st, 2nd, or 3rd codon position
+                            # if SNP is in 1st position in codon:
+                            aa_site = int(cds_site/3)+1
+
+                            if float(cds_site) % 3 == 0:
+                                codon = transcripts[gene][cds_site:cds_site+3]
+                                variant_codon = alternative_allele + codon[1:3]
+                                variant_aa = Seq(variant_codon).translate()
+                                ref_codon = reference_allele + codon[1:3]
+                                ref_aa = Seq(ref_codon).translate()
+
+                            # if variant is in the middle of the codon:
+                            elif float(cds_site - 1) % 3 == 0:
+                                codon = transcripts[gene][cds_site-1:cds_site+2]
+                                variant_codon = codon[0] + alternative_allele + codon[2]
+                                variant_aa = Seq(variant_codon).translate()
+                                ref_codon = codon[0] + reference_allele + codon[2]
+                                ref_aa = Seq(ref_codon).translate()
+
+                            # if the variant is in the 3rd codon position
+                            elif float(cds_site -2) % 3 == 0:
+                                codon = transcripts[gene][cds_site-2:cds_site+1]
+                                variant_codon = codon[0:2] + alternative_allele
+                                variant_aa = Seq(variant_codon).translate()
+                                ref_codon = codon[0:2] + reference_allele
+                                ref_aa = Seq(ref_codon).translate()
+
+
+                            # return the amino acid changes, with single letters converted to 3-letter aa codes
+                            if ref_aa == variant_aa:
+                                syn_nonsyn = "synonymous"
+                            elif ref_aa != variant_aa and variant_aa == "*":
+                                syn_nonsyn = "stop_gained"
+                            elif ref_aa != variant_aa:
+                                syn_nonsyn = "nonsynonymous"
+
+                            amino_acid_change = amino_acid_abbreviations[ref_aa] + str(aa_site) + amino_acid_abbreviations[variant_aa]
+                            with open(outfilename, "a") as outfile:
+                                output = [sequence_name,gene,str(site+1),reference_allele.upper(),alternative_allele.upper(),amino_acid_change,syn_nonsyn,frequency,frequency_decimal,"\n"]
+                                output2 = "\t".join(output)
+                                outfile.write(output2)
+
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 
 import pandas as pd
 
@@ -69,6 +70,31 @@ rule genbank_to_gtf:
         'data/reference/{segment}/metadata.gtf'
     run:
         genbank_to_gtf(input[0], output[0])
+
+rule full_gtf:
+    input:
+        expand('data/reference/{segment}/metadata.gtf', segment=SEGMENTS)
+    output:
+        'data/reference/metadata.gtf'
+    shell:
+        'cat {input} > {output}'
+
+rule coding_regions:
+    input:
+        rules.full_gtf.output[0]
+    output:
+        'data/reference/coding_regions.json'
+    run:
+        coding_regions = define_coding_regions(input[0])
+        gb_to_segkey = {
+            v['genbank_accession']: k
+            for k, v in reference_dictionary.items()
+        }
+        with open(output[0], 'w') as json_file:
+            json.dump({
+                gb_to_segkey[k]: v
+                for k, v  in coding_regions.items()
+            }, json_file, indent=2)
 
 rule trimmomatic:
     message:
@@ -278,6 +304,21 @@ rule multiqc:
         'data/{sample}/replicate-{replicate}/{mapping_stage}'
     shell:
         'multiqc -f {params} --outdir {params}'
+
+rule annotate_varscan:
+    input:
+        coding_regions=rules.coding_regions.output[0],
+        reference=rules.build_genbank_reference.output[0],
+        varscan=rules.call_variants.output.vcf
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/varscan-annotated.tsv'
+    run:
+        with open(input.coding_regions) as json_file:
+            coding_regions = json.load(json_file)
+        transcripts = slice_fastas(coding_regions, input.reference)
+        annotate_amino_acid_changes(
+            coding_regions, transcripts, input.varscan, output[0]
+        )
 
 rule clean_varscan:
     message:
