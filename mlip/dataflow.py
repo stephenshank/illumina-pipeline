@@ -26,6 +26,10 @@ def load_reference_dictionary(subtype):
     return reference_dictionary
 
 
+def tokenize(identifier):
+    return identifier.lower().replace('_', '').replace('-', '')
+
+
 def situate_basespace_data():
     config = load_config()
     csv_filepaths = list(
@@ -66,12 +70,13 @@ def situate_basespace_data():
 
     # match to files
     for run_key in key_hash.keys():
-        run_key_token = run_key.lower().replace('_', '').replace('-', '')
+        run_key_token = tokenize(run_key)
+        token_pattern = re.compile(rf'{run_key_token}(?!\d)')
         fastq_paths = Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
         for fastq_path in fastq_paths:
             fastq_basename = os.path.basename(fastq_path)
-            fastq_token = fastq_basename.lower().replace('_', '').replace('-', '')
-            if run_key_token in fastq_token:    
+            fastq_token = tokenize(fastq_basename)
+            if token_pattern.search(fastq_token):
                 if 'rep1' in fastq_token:
                     replicate_key = 'replicate-1'
                 elif 'rep2' in fastq_token:

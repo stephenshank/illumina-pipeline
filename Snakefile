@@ -12,11 +12,12 @@ wildcard_constraints:
   segment="[^/]+",
   sample="[^/]+"
 
-config = load_config()
+configfile: "config.yml"
+
 SUBTYPE = config['subtype']
 with open(os.path.join('data', 'samples.txt')) as samples_file:
     SAMPLES = [line.strip() for line in samples_file.readlines()]
-REPLICATES = (1, 2)
+REPLICATES = range(1, config['replicates'] + 1)
 
 
 reference_dictionary = load_reference_dictionary(SUBTYPE)
@@ -28,12 +29,13 @@ rule fetch_reference_data:
     output:
         fasta='data/reference/{segment}/sequence.fasta',
         genbank='data/reference/{segment}/metadata.gb'
+    resources:
+        ncbi_fetches=1
     params:
         genbank_accession=(
             lambda wildcards:
             reference_dictionary[wildcards.segment]['genbank_accession']
         ),
-
     shell:
         '''
             efetch -db nuccore \
@@ -266,7 +268,11 @@ rule call_consensus:
         vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz',
         index='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz.tbi',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
-    params: **{**config['varscan'], **config['consensus']}
+    params: **{ \
+        **config['varscan'], \
+        **config['consensus'], \
+        'initial_mapping_stage': lambda wildcards: 'genbank' if wildcards.mapping_stage == 'initial' else 'initial' \
+    }
     shell:
         '''
             varscan mpileup2cns {input.pileup} \
@@ -278,6 +284,19 @@ rule call_consensus:
             bgzip -c {output.vcf} > {output.vcf_zip}
             tabix -p vcf {output.vcf_zip}
             cat {input.reference} | bcftools consensus {output.vcf_zip} > {output.fasta}
+            sed -i 's/{params.initial_mapping_stage}/{wildcards.mapping_stage}/g' {output.fasta}
+        '''
+
+rule pluck_segment:
+    input:
+        rules.call_consensus.output.fasta
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}.fasta',
+    shell:
+        '''
+            seqkit grep -p "{wildcards.segment}" {input} | \
+            sed 's/{wildcards.segment}/{wildcards.sample}/g' | \
+            sed 's/remapping/{wildcards.segment}/g' > {output}
         '''
 
 rule build_sample_reference:
@@ -379,9 +398,32 @@ rule full_coverage_summary:
 
         full_df.to_csv(output[0], sep='\t', index=False)
 
+rule full_segment:
+    input:
+        expand(
+            'data/{sample}/replicate-1/remapping/segments/{{segment}}.fasta',
+            sample=SAMPLES
+        )
+    output:
+        'data/{segment}.fasta'
+    shell:
+        'cat {input} > {output}'
+
+rule all_full_segments:
+    input:
+        expand(
+            'data/{segment}.fasta',
+            segment=SEGMENTS
+        )
+    output:
+        'data/all.fasta'
+    shell:
+        'cat {input} > {output}'
+
 rule all:
     input:
-        rules.full_coverage_summary.output[0]
+        rules.full_coverage_summary.output[0],
+        rules.all_full_segments.output[0]
 
 rule clean:
     shell:

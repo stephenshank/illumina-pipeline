@@ -19,3 +19,4 @@ dependencies:
   - varscan
   - entrez-direct
   - seqkit
+  - sed

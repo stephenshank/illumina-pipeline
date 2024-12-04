@@ -1,5 +1,6 @@
 subtype: h5n1
 data_root_directory: "~/BaseSpace"
+replicates: 1
 trimming:
   remove_adapters: true  # Remove Illumina adapters from sequence ends
   min_length: 50  # Discard reads below this length after trimming
