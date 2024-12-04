@@ -71,7 +71,7 @@ def situate_basespace_data():
     # match to files
     for run_key in key_hash.keys():
         run_key_token = tokenize(run_key)
-        token_pattern = re.compile(rf'{run_key_token}(?!\d)')
+        token_pattern = re.compile(rf'^{run_key_token}(?!\d)')
         fastq_paths = Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
         for fastq_path in fastq_paths:
             fastq_basename = os.path.basename(fastq_path)
