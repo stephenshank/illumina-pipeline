@@ -1,4 +1,4 @@
-name: deep-sequencing
+name: mlip
 channels:
   - bioconda
   - conda-forge
