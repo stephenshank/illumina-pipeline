@@ -11,10 +11,35 @@ This document covers a more comprehensive overview of this pipeline.
 
 ## 1. Starting from reads
 
-TODO: include PNGs captured from BaseSpace... go through workflow one more time and match it up. Like the one below:
+At this stage, we assume the lab technicians have done their part of the process and sequenced a few samples. There's raw read data available in Illumina Basespace waiting to be analyzed. It's now on the informatician to continue the work, and extract some information from this data. Begin by logging into BaseSpace and sure that you're associated to the correct group:
+
+![PNG Image](documentation/accessing-different-groups.png)
+
+Navigate to projects and select the appropriate one...
+
+![PNG Image](documentation/navigate-to-projects.png)
+
+Navigate to FASTQs, and select the IDs that you intend to analyze...
+
+![PNG Image](documentation/selecting-fastqs-for-download.png)
+
+Go back up to the file icon and select dataset from the following dropdown...
+
+![PNG Image](documentation/download-menu-dropdown.png)
+
+You'll be prompted with the files that you're going to download. You will need Illumina Basespace downloader to be installed on your local machine if you haven't already. Also, one quirk I've found is that this program needs to be open for me. The web application can start a download in the program if it's already open, but if it's not, it can't open it for you.
+
+Click download to proceed...
 
 ![PNG Image](documentation/downloading-from-basespace.png)
 
+Select the folder where you'd like your sequences locally, then click start download...
+
+![PNG Image](documentation/selecting-local-folder.png)
+
+If you've made it this far, and see the download in action as below, congratulations! You have completed the first step of informatics: get the data!
+
+![PNG Image](documentation/selecting-local-folder.png)
 ## 2. Tools utilized
 
 TODO: give a better description of the overall flow, but at this point it's [Snakemake](https://snakemake.readthedocs.io/en/stable/), [Bioconda](https://bioconda.github.io/), [Genbank records](https://www.ncbi.nlm.nih.gov/genbank/samplerecord/), [GTF format](https://genome.ucsc.edu/FAQ/FAQformat.html#format4), [Trimmomatic](https://academic.oup.com/bioinformatics/article/30/15/2114/2390096), [Bowtie2](https://www.nature.com/articles/nmeth.1923), [SAMtools](https://academic.oup.com/bioinformatics/article/25/16/2078/204688), [VarScan](https://genome.cshlp.org/content/22/3/568.short), [BEDTools](https://academic.oup.com/bioinformatics/article/26/6/841/244688),[SeqKit](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0163962), [MultiQC](https://academic.oup.com/bioinformatics/article/32/19/3047/2196507), [NCBI E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25501/), and [Bash](https://www.gnu.org/software/bash/).
