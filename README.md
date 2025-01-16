@@ -2,6 +2,8 @@
 
 WARNING: This repository is a work in progress.
 
+This `README.md` is intended to be a quickstart overview. For a deeper understanding of this pipeline, please see [our documentation](https://github.com/moncla-lab/illumina-pipeline/blob/main/DOCUMENTATION.md).
+
 ## Usage
 
 Usage instructions assume you've successfully followed the installation instructions, read about and adhere to the conventions used by this software, and have a basic understanding of [conda](https://docs.conda.io/en/latest/) and [Snakemake](https://snakemake.readthedocs.io/en/stable/).
