@@ -4,7 +4,7 @@ This document covers a more comprehensive overview of this pipeline.
 
 ## Table of Contents
 
-1. **Starting from reads** - Going from data fresh off of Illumina sequences to infformation 
+1. **Starting from reads** - Going from data fresh off of Illumina sequences to biological information
 2. **Tools utilized** - Bioinformatics tools used in this pipeline with a brief description and rationale.
 3. **User stories** - Various use cases for this pipeline and how to execute them.
 4. **Output produced** - The various files that are produced by this pipeline.
@@ -13,7 +13,7 @@ This document covers a more comprehensive overview of this pipeline.
 
 TODO: include PNGs captured from BaseSpace... go through workflow one more time and match it up. Like the one below:
 
-![PNG Image](documentation/DownloadingFromBaseSpace.png)
+![PNG Image](documentation/downloading-from-basespace.png)
 
 ## 2. Tools utilized
 
