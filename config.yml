@@ -7,9 +7,10 @@ trimming:
   window_size: 5  # Slide along reads in windows of this size during trimming
   trim_qscore: 30 # Trim reads using a quality score threshold
 varscan:
-  min_cov: 25  # Minimum coverage for SNP calling
+  min_cov: 100 # Minimum coverage for SNP calling
   snp_qual_threshold: 30  # Base quality threshold for SNP calling
   snp_frequency: 0.01  # SNP frequency cutoff (e.g., 1% = 0.01)
   strand_filter: 1  # Implement strand filter for SNV calling (1 = yes, 0 = no)
 consensus:
   snp_frequency: 0.2 # SNP frequency cutoff (e.g., 1% = 0.01)
+  min_cov: 25 # Minimum coverage for consensus calling

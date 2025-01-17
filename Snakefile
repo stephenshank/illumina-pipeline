@@ -200,7 +200,15 @@ get_reference = lambda wildcards: f'data/{get_sample(wildcards)}/sequences.fasta
 
 rule call_variants:
     message:
-        'Calling variants on replicate {wildcards.replicate} of sample {wildcards.sample}...'
+        '''
+            Calling variants on replicate {wildcards.replicate} of sample {wildcards.sample}...
+            Parameters:
+                Mapping stage: {wildcards.mapping_stage}
+                SNP frequency: {params.snp_frequency}
+                Minimum coverage for variant calling: {params.min_cov}
+                Strand filter: {params.strand_filter}
+                SNP quality threshold: {params.snp_qual_threshold}
+        '''
     input:
         bam=rules.samtools.output.sorted_,
         stderr=rules.samtools.output.stderr,
@@ -258,7 +266,15 @@ rule coverage_summary:
 
 rule call_consensus:
     message:
-        'Calling consensus on replicate {wildcards.replicate} of sample {wildcards.sample}...'
+        '''
+            Calling consensus on replicate {wildcards.replicate} of sample {wildcards.sample}...
+            Parameters:
+                Mapping stage: {wildcards.mapping_stage}
+                SNP frequency: {params.snp_frequency}
+                Minimum coverage for consensus calling: {params.min_cov}
+                Strand filter: {params.strand_filter}
+                SNP quality threshold: {params.snp_qual_threshold}
+        '''
     input:
         reference=get_reference,
         pileup=rules.call_variants.output.pileup,
