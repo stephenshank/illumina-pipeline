@@ -4,10 +4,12 @@ This document covers a more comprehensive overview of this pipeline.
 
 ## Table of Contents
 
-1. **Starting from reads** - Going from data fresh off of Illumina sequences to biological information
-2. **Tools utilized** - Bioinformatics tools used in this pipeline with a brief description and rationale.
-3. **User stories** - Various use cases for this pipeline and how to execute them.
-4. **Output produced** - The various files that are produced by this pipeline.
+## Table of Contents
+
+1. [**Starting from reads**](#1-starting-from-reads) - Going from data fresh off of Illumina sequences to biological information
+2. [**Tools utilized**](#2-tools-utilized) - Bioinformatics tools used in this pipeline with a brief description and rationale.
+3. [**User stories**](#3-user-stories) - Various use cases for this pipeline and how to execute them.
+4. [**Output produced**](#4-output-produced) - The various files that are produced by this pipeline.
 
 ## 1. Starting from reads
 
