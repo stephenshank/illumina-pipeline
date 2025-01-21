@@ -8,19 +8,18 @@ from mlip import *
 
 
 wildcard_constraints:
-  subtype="[^/]+",
   segment="[^/]+",
   sample="[^/]+"
 
 configfile: "config.yml"
 
-SUBTYPE = config['subtype']
+REFERENCE = config['reference']
 with open(os.path.join('data', 'samples.txt')) as samples_file:
     SAMPLES = [line.strip() for line in samples_file.readlines()]
 REPLICATES = range(1, config['replicates'] + 1)
 
 
-reference_dictionary = load_reference_dictionary(SUBTYPE)
+reference_dictionary = load_reference_dictionary(REFERENCE)
 SEGMENTS = reference_dictionary.keys()
 
 rule fetch_reference_data:
@@ -100,7 +99,13 @@ rule coding_regions:
 
 rule trimmomatic:
     message:
-        'Trimming replicate {wildcards.replicate} of sample {wildcards.sample}...'
+        '''
+            Trimming replicate {wildcards.replicate} of sample {wildcards.sample}...
+            Parameters:
+                Window size: {params.rule_trimmomatic_window_size}
+                Q-score: {params.rule_trimmomatic_trim_qscore}
+                Minimum length: {params.rule_trimmomatic_min_length}
+        '''
     input:
         forward='data/{sample}/replicate-{replicate}/forward.fastq.gz',
         reverse_='data/{sample}/replicate-{replicate}/reverse.fastq.gz'
@@ -111,15 +116,15 @@ rule trimmomatic:
         reverse_unpaired='data/{sample}/replicate-{replicate}/reverse_unpaired.fastq',
         stdout='data/{sample}/replicate-{replicate}/trimmomatic-stdout.txt',
         log='data/{sample}/replicate-{replicate}/trimmomatic.log',
-    params: **config['trimming']
+    params: **config
     shell:
         '''
             trimmomatic PE \
                 {input.forward} {input.reverse_} \
                 {output.forward_paired} {output.forward_unpaired} \
                 {output.reverse_paired} {output.reverse_unpaired} \
-                SLIDINGWINDOW:{params.window_size}:{params.trim_qscore} \
-                MINLEN:{params.min_length} \
+                SLIDINGWINDOW:{params.rule_trimmomatic_window_size}:{params.rule_trimmomatic_trim_qscore} \
+                MINLEN:{params.rule_trimmomatic_min_length} \
                 > {output.stdout} 2> {output.log}
         '''
 
@@ -204,10 +209,10 @@ rule call_variants:
             Calling variants on replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
                 Mapping stage: {wildcards.mapping_stage}
-                SNP frequency: {params.snp_frequency}
-                Minimum coverage for variant calling: {params.min_cov}
-                Strand filter: {params.strand_filter}
-                SNP quality threshold: {params.snp_qual_threshold}
+                SNP frequency: {params.rule_call_variants_snp_frequency}
+                Minimum coverage for variant calling: {params.rule_call_consensus_min_coverage}
+                Strand filter: {params.tool_varscan_strand_filter}
+                SNP quality threshold: {params.tool_varscan_min_avg_qual}
         '''
     input:
         bam=rules.samtools.output.sorted_,
@@ -221,7 +226,7 @@ rule call_variants:
         index=  'data/{sample}/replicate-{replicate}/{mapping_stage}/varscan.vcf.gz.tbi',
         stderr= 'data/{sample}/replicate-{replicate}/{mapping_stage}/varscan-stderr.txt'
     params:
-        **config['varscan']
+        **config
     shell:
         '''
             samtools mpileup -A \
@@ -229,10 +234,10 @@ rule call_variants:
                 -f {input.reference} \
                 {input.bam} > {output.pileup} 2>> {input.stderr}
             varscan mpileup2snp {output.pileup} \
-                --min-coverage {params.min_cov} \
-                --min-avg-qual {params.snp_qual_threshold} \
-                --min-var-freq {params.snp_frequency} \
-                --strand-filter {params.strand_filter} \
+                --min-coverage {params.rule_call_consensus_min_coverage} \
+                --min-avg-qual {params.tool_varscan_min_avg_qual} \
+                --min-var-freq {params.rule_call_variants_snp_frequency} \
+                --strand-filter {params.tool_varscan_strand_filter} \
                 --output-vcf 1 > {output.vcf} 2> {output.stderr}
             grep -v '^##' {output.vcf} > {output.tsv}
             bgzip -c {output.vcf} > {output.vcf_zip}
@@ -264,16 +269,26 @@ rule coverage_summary:
     run:    
         compute_coverage_categories_io(input[0], output[0])
 
+
+def consensus_params(wildcards, config):
+    # Wrapper function to pass config and mapping stage to consensus calling rule
+    # This, with the lambda function below, is a bit of a hack to pass wildcards and config to params
+    return {
+        **config
+        'initial_mapping_stage': 'genbank' if wildcards.mapping_stage == 'initial' else 'initial',
+    }
+
+
 rule call_consensus:
     message:
         '''
             Calling consensus on replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
                 Mapping stage: {wildcards.mapping_stage}
-                SNP frequency: {params.snp_frequency}
-                Minimum coverage for consensus calling: {params.min_cov}
-                Strand filter: {params.strand_filter}
-                SNP quality threshold: {params.snp_qual_threshold}
+                SNP frequency: {params.rule_call_consensus_min_var_freq}
+                Minimum coverage for consensus calling: {params.rule_call_consensus_min_coverage}
+                Strand filter: {params.tool_varscan_strand_filter}
+                SNP quality threshold: {params.tool_varscan_min_avg_qual}
         '''
     input:
         reference=get_reference,
@@ -284,18 +299,14 @@ rule call_consensus:
         vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz',
         index='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz.tbi',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
-    params: **{ \
-        **config['varscan'], \
-        **config['consensus'], \
-        'initial_mapping_stage': lambda wildcards: 'genbank' if wildcards.mapping_stage == 'initial' else 'initial' \
-    }
+    params: lambda wildcard: get_params(wildcards, config)
     shell:
         '''
             varscan mpileup2cns {input.pileup} \
-                --min-coverage {params.min_cov} \
-                --min-avg-qual {params.snp_qual_threshold} \
-                --min-var-freq {params.snp_frequency} \
-                --strand-filter {params.strand_filter} \
+                --min-coverage {params.rule_call_consensus_min_coverage} \
+                --min-avg-qual {params.tool_varscan_min_avg_qual} \
+                --min-var-freq {params.rule_call_consensus_min_var_freq} \
+                --strand-filter {params.tool_varscan_strand_filter} \
                 --output-vcf 1 > {output.vcf}
             bgzip -c {output.vcf} > {output.vcf_zip}
             tabix -p vcf {output.vcf_zip}
