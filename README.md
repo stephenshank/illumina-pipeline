@@ -58,7 +58,7 @@ Requires [Bioconda](https://bioconda.github.io/) and [Git](https://git-scm.com/)
 ```
 git clone https://github.com/monclalab/illumina-pipeline
 cd illumina-pipeline
-conda env create -f environment.yml -n mlip
+conda create -n mlip pandas=2 altair biopython bedtools bcftools bowtie2 multiqc samtools trimmomatic snakemake snpeff varscan entrez-direct seqkit sed
 ```
 
 ## Conventions
