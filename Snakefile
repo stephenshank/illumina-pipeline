@@ -307,9 +307,23 @@ rule call_consensus:
             sed -i 's/{params.initial_mapping_stage}/{wildcards.mapping_stage}/g' {output.fasta}
         '''
 
+rule mask_consensus:
+    input:
+        fasta=rules.call_consensus.output.fasta,
+        coverage=rules.coverage.output.tsv
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/masked_consensus.fasta'
+    run:
+        mask_low_coverage(
+            input.fasta,
+            input.coverage,
+            config['rule_call_consensus_min_coverage'],
+            output[0]
+        )
+
 rule pluck_segment:
     input:
-        rules.call_consensus.output.fasta
+        rules.mask_consensus.output[0]
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}.fasta',
     shell:

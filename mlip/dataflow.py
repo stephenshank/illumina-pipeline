@@ -428,6 +428,31 @@ def coverage_summary(input_tsvs, output_tsv):
     full_df.to_csv(output_tsv, sep='\t', index=False)
 
 
+def mask_low_coverage(fasta_file, coverage_file, threshold, output_fasta):
+    # Read the coverage file into a dictionary
+    coverage = {}
+    with open(coverage_file, 'r') as cf:
+        reader = csv.reader(cf, delimiter='\t')
+        next(reader)  # Skip header
+        for segment, start, end, cov in reader:
+            start, end, cov = int(start), int(end), int(cov)
+            if segment not in coverage:
+                coverage[segment] = []
+            coverage[segment].append((start, end, cov))
+
+    # Process FASTA and mask low coverage regions
+    seq_records = []
+    for seq_record in SeqIO.parse(fasta_file, 'fasta'):
+        seq = list(str(seq_record.seq))
+        for start, end, cov in coverage.get(seq_record.id, []):
+            if cov < threshold:
+                for i in range(start, end):
+                    if i < len(seq):
+                        seq[i] = 'N'
+        seq_record.seq = ''.join(seq)
+        seq_records.append(seq_record)
+    SeqIO.write(seq_records, output_fasta, 'fasta')
+
 
 if __name__ == '__main__':
     situate_basespace_data()
