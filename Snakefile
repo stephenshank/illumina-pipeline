@@ -16,7 +16,7 @@ configfile: "config.yml"
 REFERENCE = config['reference']
 with open(os.path.join('data', 'samples.txt')) as samples_file:
     SAMPLES = [line.strip() for line in samples_file.readlines()]
-REPLICATES = range(1, config['replicates'] + 1)
+REPLICATES = range(1, 3)
 
 
 reference_dictionary = load_reference_dictionary(REFERENCE)
@@ -209,7 +209,7 @@ rule call_variants:
             Calling variants on replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
                 Mapping stage: {wildcards.mapping_stage}
-                SNP frequency: {params.rule_call_variants_snp_frequency}
+                SNP frequency: {params.rule_call_variants_min_var_freq}
                 Minimum coverage for variant calling: {params.rule_call_consensus_min_coverage}
                 Strand filter: {params.tool_varscan_strand_filter}
                 SNP quality threshold: {params.tool_varscan_min_avg_qual}
@@ -236,7 +236,7 @@ rule call_variants:
             varscan mpileup2snp {output.pileup} \
                 --min-coverage {params.rule_call_consensus_min_coverage} \
                 --min-avg-qual {params.tool_varscan_min_avg_qual} \
-                --min-var-freq {params.rule_call_variants_snp_frequency} \
+                --min-var-freq {params.rule_call_variants_min_var_freq} \
                 --strand-filter {params.tool_varscan_strand_filter} \
                 --output-vcf 1 > {output.vcf} 2> {output.stderr}
             grep -v '^##' {output.vcf} > {output.tsv}
@@ -269,16 +269,6 @@ rule coverage_summary:
     run:    
         compute_coverage_categories_io(input[0], output[0])
 
-
-def consensus_params(wildcards, config):
-    # Wrapper function to pass config and mapping stage to consensus calling rule
-    # This, with the lambda function below, is a bit of a hack to pass wildcards and config to params
-    return {
-        **config
-        'initial_mapping_stage': 'genbank' if wildcards.mapping_stage == 'initial' else 'initial',
-    }
-
-
 rule call_consensus:
     message:
         '''
@@ -299,7 +289,10 @@ rule call_consensus:
         vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz',
         index='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz.tbi',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
-    params: lambda wildcard: get_params(wildcards, config)
+    params: **{ \
+        **config, \
+        'initial_mapping_stage': lambda wildcards: 'genbank' if wildcards.mapping_stage == 'initial' else 'initial' \
+    }
     shell:
         '''
             varscan mpileup2cns {input.pileup} \
@@ -409,21 +402,7 @@ rule full_coverage_summary:
     output:
         'data/coverage-summary.tsv',
     run:
-        dfs = []
-        for tsv_path in input:
-            split_path = tsv_path.split('/')
-            sample_id = split_path[1]
-            replicate = split_path[2]
-            df = pd.read_csv(tsv_path, sep='\t')
-            df['sample_id'] = f'{sample_id}-{replicate}'
-            dfs.append(df)
-        full_df = pd.concat(dfs, ignore_index=True)
-        full_df['total_coverage'] = full_df['0x'] + \
-            full_df['1-100x'] + \
-            full_df['100-1000x'] + \
-            full_df['1000x+']
-
-        full_df.to_csv(output[0], sep='\t', index=False)
+        coverage_summary(input, output[0])
 
 rule full_segment:
     input:

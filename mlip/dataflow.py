@@ -410,6 +410,24 @@ def annotate_amino_acid_changes(coding_regions, transcripts, vcf, outfilename):
                                 outfile.write(output2)
 
 
+def coverage_summary(input_tsvs, output_tsv):
+    dfs = []
+    for tsv_path in input_tsvs:
+        split_path = tsv_path.split('/')
+        sample_id = split_path[1]
+        replicate = split_path[2]
+        df = pd.read_csv(tsv_path, sep='\t')
+        df['sample_id'] = f'{sample_id}-{replicate}'
+        dfs.append(df)
+    full_df = pd.concat(dfs, ignore_index=True)
+    full_df['total_coverage'] = full_df['0x'] + \
+        full_df['1-100x'] + \
+        full_df['100-1000x'] + \
+        full_df['1000x+']
+
+    full_df.to_csv(output_tsv, sep='\t', index=False)
+
+
 
 if __name__ == '__main__':
     situate_basespace_data()
