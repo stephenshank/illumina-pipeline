@@ -1,8 +1,10 @@
 import os
 import csv
+import json
 import shutil
 import re
 from pathlib import Path
+import argparse
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -30,46 +32,59 @@ def tokenize(identifier):
     return identifier.lower().replace('_', '').replace('-', '')
 
 
-def situate_basespace_data():
+def preprocess(id_filepath, seq_key='Seq'):
     config = load_config()
-    csv_filepaths = list(
-        Path(config['data_root_directory']).expanduser().rglob('*.csv')
-    )
-    with open(csv_filepaths[0]) as f:
-        metadata_rows = list(csv.reader(f))
-    data_index = [i for i, row in enumerate(metadata_rows) if row[0] == '[Data]'][0]
-    raw_keys = [
-        row[0]
-        for row in metadata_rows[data_index+2: ]
-        if row[0] != ''
-    ]
-
+    with open(id_filepath, 'r') as f:
+        lines = f.read().splitlines()
+    raw_keys = set(lines)
     key_hash = {}
+
+    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)')
     # process keys
     for raw_key in raw_keys:
-        if '_Rep1' in raw_key:
-            run_key = raw_key.replace('_Rep1', '')
-            replicate_key = 'replicate-1'
-        elif '_Rep2' in raw_key:
-            run_key = raw_key.replace('_Rep2', '')
-            replicate_key = 'replicate-2'
+        match = seq_key_pattern.search(raw_key)
+        found_match = False
+        if match:
+            sample_key = raw_key.replace(match.group(0), '').lower()
+            sequence_key = f"sequence-{match.group(1)}"
+            found_match = True
         else:
-            run_key = raw_key
-            replicate_key = 'replicate-1'
+            sample_key = raw_key.lower()
+            sequence_key = 'sequence-1'
         new_value = {
             'original_key': raw_key,
+            'found_match': found_match,
             'forward_count': 0,
             'forward_filepath': '',
             'reverse_count': 0,
             'reverse_filepath': ''
         }
-        if run_key in key_hash:
-            key_hash[run_key][replicate_key] = new_value
+        if sample_key in key_hash:
+            key_hash[sample_key][sequence_key] = new_value
         else:
-            key_hash[run_key]= {replicate_key: new_value}
+            key_hash[sample_key]= {sequence_key: new_value}
 
+    os.makedirs('data', exist_ok=True)
+    rows = []
+    for sample_key, sample_value in key_hash.items():
+        for sequence_key, sequence_value in sample_value.items():
+            rows.append({
+                'SequencingId': sequence_value['original_key'],
+                'SampleID': sample_key if sequence_value['found_match'] else '',
+                'Replicate': ''
+            })
+
+    sorted_rows = sorted(rows, key=lambda x: x['SequencingId'].lower())
+    print(sorted_rows)
+    with open("data/metadata.tsv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=sorted_rows[0].keys(), delimiter="\t")
+        writer.writeheader()
+        for row in sorted_rows:
+            writer.writerow(row)
+
+    return
     # match to files
-    for run_key in key_hash.keys():
+    for sample_key in key_hash.keys():
         run_key_token = tokenize(run_key)
         token_pattern = re.compile(rf'^{run_key_token}(?!\d)')
         fastq_paths = Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
@@ -122,6 +137,38 @@ def situate_basespace_data():
     sample_keys_filepath = os.path.join('data', 'samples.txt')
     with open(sample_keys_filepath, 'w') as samples_file:
         samples_file.write('\n'.join(key_hash.keys()))
+
+
+def preprocess_cli(args):
+    if args.key:
+        preprocess(args.file, args.key)
+    else:
+        preprocess(args.file)
+
+
+def flow():
+    print('flow')
+
+
+def flow_cli():
+    flow()
+
+
+def command_line_interface():
+    parser = argparse.ArgumentParser(description="MLIP dataflow")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    pre_parser = subparsers.add_parser("preprocess", help="Convert Sequencing ID list to metadata spreadsheet.")
+    pre_parser.add_argument("-f", "--file", required=True, type=str, help="Path to the ID list")
+    pre_parser.add_argument("-k", "--key", required=False, type=str, help="Key to denote sequencing experiment")
+    pre_parser.set_defaults(func=preprocess_cli)
+
+    flow_parser = subparsers.add_parser("flow", help="Move data based on metadata spreadsheet.")
+    flow_parser.add_argument("-f", "--file", required=True, type=str, help="Path to the metadata spreadsheet.")
+    flow_parser.set_defaults(func=flow_cli)
+
+    args = parser.parse_args()
+    args.func(args)
 
 
 def genbank_to_gtf(gbk_file, gtf_file):
@@ -343,7 +390,7 @@ def annotate_amino_acid_changes(coding_regions, transcripts, vcf, outfilename):
                 alternative_allele = row[4].lower()
  
                 # pull out the frequency using a string search
-                SearchStr = '.+\:([0-9]{1,2}\.{0,1}[0-9]{0,2}\%)'
+                SearchStr = r'.+\:([0-9]{1,2}\.{0,1}[0-9]{0,2}\%)'
                 result = re.search(SearchStr,row[9])
                 if result:
                     frequency = '\t'.join(result.groups())
@@ -455,4 +502,4 @@ def mask_low_coverage(fasta_file, coverage_file, threshold, output_fasta):
 
 
 if __name__ == '__main__':
-    situate_basespace_data()
+    command_line_interface()
