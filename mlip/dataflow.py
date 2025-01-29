@@ -29,10 +29,6 @@ def load_reference_dictionary(subtype):
     return reference_dictionary
 
 
-def tokenize(identifier):
-    return identifier.lower().replace('_', '').replace('-', '')
-
-
 def check_duplicates(lines):
     seen = {}
     saw_dupes = False
@@ -84,62 +80,6 @@ def preprocess(id_filepath, seq_key='Seq'):
     return
 
 
-    # match to files
-    for sample_key in key_hash.keys():
-        run_key_token = tokenize(run_key)
-        token_pattern = re.compile(rf'^{run_key_token}(?!\d)')
-        fastq_paths = Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
-        for fastq_path in fastq_paths:
-            fastq_basename = os.path.basename(fastq_path)
-            fastq_token = tokenize(fastq_basename)
-            if token_pattern.search(fastq_token):
-                if 'rep1' in fastq_token:
-                    replicate_key = 'replicate-1'
-                elif 'rep2' in fastq_token:
-                    replicate_key = 'replicate-2'
-                else:
-                    replicate_key = 'replicate-1'
-                is_forward = fastq_basename.split('_')[-2] == 'R1'
-                direction_key = 'forward' if is_forward else 'reverse'    
-                count_key = f'{direction_key}_count'
-                key_hash[run_key][replicate_key][count_key] += 1
-                key_hash[run_key][replicate_key][f'{direction_key}_filepath'] = fastq_path
-                if key_hash[run_key][replicate_key][count_key] > 1:
-                    raise ValueError("Multiple FASTQs found for same token... aborting!!")
-    
-    # clean up
-    keys_to_delete = []
-    for key, value in key_hash.items():
-        if value['replicate-1']['forward_count'] == 0 and value['replicate-1']['reverse_count'] == 0:
-            keys_to_delete.append(key)
-    for key in keys_to_delete:
-        del key_hash[key]
-    
-    # move or copy
-    for sample_key, sample_value in key_hash.items():
-        for replicate_key, replicate_value in sample_value.items():
-            action = 'mov'
-            old_forward_path = replicate_value['forward_filepath']
-            old_forward_name = os.path.basename(old_forward_path)
-            new_forward_path = os.path.join('data', sample_key, replicate_key, 'forward.fastq.gz')
-            print(f'{action}ing {old_forward_name} to {new_forward_path}')
-            directory_path = os.path.dirname(new_forward_path)
-            os.makedirs(directory_path, exist_ok=True)
-            shutil.copy(old_forward_path, new_forward_path)
-
-            old_reverse_path = replicate_value['reverse_filepath']
-            old_reverse_name = os.path.basename(old_reverse_path)
-            new_reverse_path = os.path.join('data', sample_key, replicate_key, 'reverse.fastq.gz')
-            print(f'{action}ing {old_reverse_name} to {new_reverse_path}\n')
-            directory_path = os.path.dirname(new_forward_path)
-            os.makedirs(directory_path, exist_ok=True)
-            shutil.copy(old_reverse_path, new_reverse_path)
-
-    sample_keys_filepath = os.path.join('data', 'samples.txt')
-    with open(sample_keys_filepath, 'w') as samples_file:
-        samples_file.write('\n'.join(key_hash.keys()))
-
-
 def preprocess_cli(args):
     if args.key:
         preprocess(args.file, args.key)
@@ -147,11 +87,79 @@ def preprocess_cli(args):
         preprocess(args.file)
 
 
+def tokenize(identifier):
+    return identifier.lower().replace('_', '').replace('-', '')
+
+
+def is_forward_fastq_path(fastq_path):
+    return fastq_path.split('_')[-2] == 'R1'
+
+
+def convert_forward_to_reverse(fastq_path):
+    dirname, filename = os.path.split(fastq_path)
+    new_filename = filename[::-1].replace("1R", "2R", 1)[::-1]  # Reverse swap
+    return os.path.join(dirname, new_filename)
+
+
 def flow():
-    print('flow')
+    with open('data/metadata.tsv', 'r') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        rows = list(reader)
 
+    current_sample = None
+    counter = 0
 
-def flow_cli():
+    config = load_config()
+    fastq_paths = [
+        str(fastq_path)
+        for fastq_path in Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
+        if is_forward_fastq_path(str(fastq_path))
+    ]
+    fastq_tokens = [tokenize(fastq_path) for fastq_path in fastq_paths]
+    fastq_hash = {
+        token: {
+            'path': path,
+            'reverse': convert_forward_to_reverse(path),
+            'seen': False
+        }
+        for token, path in zip(fastq_tokens, fastq_paths)
+    }
+    for row in rows:
+        sample_id = row['SampleId']
+        sequencing_token = tokenize(row['SequencingId'])
+
+        if sample_id != current_sample:
+            current_sample = sample_id
+            counter = 1
+        else:
+            counter += 1
+
+        token_pattern = re.compile(rf'{sequencing_token}(?!\d)')
+        for fastq_token in fastq_tokens:
+            if token_pattern.search(fastq_token):
+                if fastq_hash[fastq_token]['seen'] == True:
+                    print('FATAL ERROR! Tokens clashed. Please contact Stephen.')
+                    sys.exit(1)
+                fastq_hash[fastq_token]['seen'] = True
+
+                directory_path = os.path.join('data', sample_id, f'sequencing-{counter}')
+                os.makedirs(directory_path, exist_ok=True)
+
+                old_forward_path = fastq_hash[fastq_token]['path']
+                new_forward_path = os.path.join(directory_path, 'forward.fastq.gz')
+                shutil.copy(old_forward_path, new_forward_path)
+
+                old_reverse_path = fastq_hash[fastq_token]['reverse']
+                new_reverse_path = os.path.join(directory_path, 'reverse.fastq.gz')
+                shutil.copy(old_reverse_path, new_reverse_path)
+
+                print(f"{sample_id}: sequencing experiment {counter}, replicate {row['Replicate']}")
+                print(f'\tForward: {old_forward_path}')
+                print(f'\tMoving to {new_forward_path}\n')
+                print(f'\tReverse: {old_reverse_path}')
+                print(f'\tMoving to {new_reverse_path}\n\n')
+
+def flow_cli(args):
     flow()
 
 
@@ -165,7 +173,6 @@ def command_line_interface():
     pre_parser.set_defaults(func=preprocess_cli)
 
     flow_parser = subparsers.add_parser("flow", help="Move data based on metadata spreadsheet.")
-    flow_parser.add_argument("-f", "--file", required=True, type=str, help="Path to the metadata spreadsheet.")
     flow_parser.set_defaults(func=flow_cli)
 
     args = parser.parse_args()
