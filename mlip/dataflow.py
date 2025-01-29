@@ -1,4 +1,5 @@
 import os
+import sys
 import csv
 import json
 import shutil
@@ -32,57 +33,57 @@ def tokenize(identifier):
     return identifier.lower().replace('_', '').replace('-', '')
 
 
+def check_duplicates(lines):
+    seen = {}
+    saw_dupes = False
+    for line_num, line in enumerate(lines, 1):
+        id_ = line.strip()
+        if id_ in seen:
+            saw_dupes = True
+            print(f"Duplicate ID '{id_}' found on lines {seen[id_]} and {line_num}")
+        else:
+            seen[id_] = line_num
+    if saw_dupes:
+        print('You have duplicate sequencing IDs! MLIP cannot proceed until this is rectified.')
+        sys.exit(1)
+
+
 def preprocess(id_filepath, seq_key='Seq'):
-    config = load_config()
     with open(id_filepath, 'r') as f:
         lines = f.read().splitlines()
-    raw_keys = set(lines)
+    check_duplicates(lines)
+
+    sorted_seq_ids = sorted(lines, key=lambda x: x.lower())
+    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)')
     key_hash = {}
 
-    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)')
+
+    fieldnames = ['SequencingId', 'SampleId', 'Replicate']
+    os.makedirs('data', exist_ok=True)
+    f = open('data/metadata.tsv', 'w', newline='')
+    writer = csv.DictWriter(f, fieldnames=fieldnames, delimiter='\t')
+    writer.writeheader()
     # process keys
-    for raw_key in raw_keys:
-        match = seq_key_pattern.search(raw_key)
+    for seq_id in sorted_seq_ids:
+        match = seq_key_pattern.search(seq_id)
         found_match = False
         if match:
-            sample_key = raw_key.replace(match.group(0), '').lower()
-            sequence_key = f"sequence-{match.group(1)}"
+            sample_id = seq_id.replace(match.group(0), '').lower()
             found_match = True
         else:
-            sample_key = raw_key.lower()
-            sequence_key = 'sequence-1'
-        new_value = {
-            'original_key': raw_key,
-            'found_match': found_match,
-            'forward_count': 0,
-            'forward_filepath': '',
-            'reverse_count': 0,
-            'reverse_filepath': ''
-        }
-        if sample_key in key_hash:
-            key_hash[sample_key][sequence_key] = new_value
-        else:
-            key_hash[sample_key]= {sequence_key: new_value}
+            sample_id = ''
+        writer.writerow({
+            'SequencingId': seq_id,
+            'SampleId': sample_id,
+            'Replicate': ''
+        })
 
-    os.makedirs('data', exist_ok=True)
-    rows = []
-    for sample_key, sample_value in key_hash.items():
-        for sequence_key, sequence_value in sample_value.items():
-            rows.append({
-                'SequencingId': sequence_value['original_key'],
-                'SampleID': sample_key if sequence_value['found_match'] else '',
-                'Replicate': ''
-            })
-
-    sorted_rows = sorted(rows, key=lambda x: x['SequencingId'].lower())
-    print(sorted_rows)
-    with open("data/metadata.tsv", "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=sorted_rows[0].keys(), delimiter="\t")
-        writer.writeheader()
-        for row in sorted_rows:
-            writer.writerow(row)
-
+    f.close()
+    print('Metadata spreadsheet written to data/metadata.tsv.')
+    print('Please edit, then run the flow step.')
     return
+
+
     # match to files
     for sample_key in key_hash.keys():
         run_key_token = tokenize(run_key)
@@ -160,7 +161,7 @@ def command_line_interface():
 
     pre_parser = subparsers.add_parser("preprocess", help="Convert Sequencing ID list to metadata spreadsheet.")
     pre_parser.add_argument("-f", "--file", required=True, type=str, help="Path to the ID list")
-    pre_parser.add_argument("-k", "--key", required=False, type=str, help="Key to denote sequencing experiment")
+    pre_parser.add_argument("-k", "--key", required=False, type=str, default="Seq", help="Key to denote sequencing experiment")
     pre_parser.set_defaults(func=preprocess_cli)
 
     flow_parser = subparsers.add_parser("flow", help="Move data based on metadata spreadsheet.")

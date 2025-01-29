@@ -1,5 +1,5 @@
 reference: h5n1                       # Reference to be used
-data_root_directory: "/Users/sdshank/Documents/deep-sequencing/basespace-data/pabird-012224"    # Directory where data from BaseSpaces has been downloaded
+data_root_directory: "~/BaseSpace"    # Directory where data from BaseSpaces has been downloaded
 rule_trimmomatic_min_length: 50       # Discard reads below this length after trimming
 rule_trimmomatic_window_size: 5       # Slide along reads in windows of this size during trimming
 rule_trimmomatic_trim_qscore: 30      # Trim reads using a quality score threshold
