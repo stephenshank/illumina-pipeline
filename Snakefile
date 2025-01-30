@@ -124,8 +124,8 @@ rule concatenate_experiments_to_replicates:
         reverse_='data/{sample}/replicate-{replicate}/reverse.fastq.gz'
     shell:
         '''
-            gzip -dc {input.forward} > {output.forward}
-            gzip -dc {input.reverse_} > {output.reverse_}
+            gzip -dc {input.forward} | gzip > {output.forward}
+            gzip -dc {input.reverse_} | gzip > {output.reverse_}
         '''
 
 rule trimmomatic:
