@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 import argparse
 from collections import defaultdict
+from collections import Counter
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -107,16 +108,13 @@ def flow():
         reader = csv.DictReader(f, delimiter='\t')
         rows = list(reader)
 
-    current_sample = None
-    counter = 0
-
     config = load_config()
     fastq_paths = [
         str(fastq_path)
         for fastq_path in Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
         if is_forward_fastq_path(str(fastq_path))
     ]
-    fastq_tokens = [tokenize(fastq_path) for fastq_path in fastq_paths]
+    fastq_tokens = [tokenize(os.path.basename(fastq_path)) for fastq_path in fastq_paths]
     fastq_hash = {
         token: {
             'path': path,
@@ -125,25 +123,23 @@ def flow():
         }
         for token, path in zip(fastq_tokens, fastq_paths)
     }
+    counter = Counter()
     for row in rows:
         sample_id = row['SampleId']
+        counter[sample_id] += 1
         sequencing_token = tokenize(row['SequencingId'])
 
-        if sample_id != current_sample:
-            current_sample = sample_id
-            counter = 1
-        else:
-            counter += 1
-
-        token_pattern = re.compile(rf'{sequencing_token}(?!\d)')
+        token_pattern = re.compile(rf'^{sequencing_token}(?!\d)')
+        found_match = False
         for fastq_token in fastq_tokens:
             if token_pattern.search(fastq_token):
                 if fastq_hash[fastq_token]['seen'] == True:
                     print('FATAL ERROR! Tokens clashed. Please contact Stephen.')
                     sys.exit(1)
+                found_match = True
                 fastq_hash[fastq_token]['seen'] = True
 
-                directory_path = os.path.join('data', sample_id, f'sequencing-{counter}')
+                directory_path = os.path.join('data', sample_id, f'sequencing-{counter[sample_id]}')
                 os.makedirs(directory_path, exist_ok=True)
 
                 old_forward_path = fastq_hash[fastq_token]['path']
@@ -154,11 +150,13 @@ def flow():
                 new_reverse_path = os.path.join(directory_path, 'reverse.fastq.gz')
                 shutil.copy(old_reverse_path, new_reverse_path)
 
-                print(f"{sample_id}: sequencing experiment {counter}, replicate {row['Replicate']}")
+                print(f"{sample_id}: sequencing experiment {counter[sample_id]}, replicate {row['Replicate']}")
                 print(f'\tForward: {old_forward_path}')
                 print(f'\tMoving to {new_forward_path}\n')
                 print(f'\tReverse: {old_reverse_path}')
                 print(f'\tMoving to {new_reverse_path}\n\n')
+        if not found_match:
+            print(f'Warning! Could not find a match for {row['SequencingId']}!')
 
 
 def flow_cli(args):
@@ -185,19 +183,12 @@ def load_metadata_dictionary():
     f = open('data/metadata.tsv', 'r')
     reader = csv.DictReader(f, delimiter='\t')
     md_dict = defaultdict(lambda: defaultdict(list))
-    current_sample = None
-    counter = 0
-
+    counter = Counter()
     for row in reader:
         sample_id = row['SampleId']
         replicate = row['Replicate']
-
-        if sample_id != current_sample:
-            current_sample = sample_id
-            counter = 1
-        else:
-            counter += 1
-        md_dict[sample_id][replicate].append(counter)
+        counter[sample_id] += 1
+        md_dict[sample_id][replicate].append(counter[sample_id])
     f.close()
     return md_dict
 
