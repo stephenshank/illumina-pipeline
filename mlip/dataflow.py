@@ -6,6 +6,7 @@ import shutil
 import re
 from pathlib import Path
 import argparse
+from collections import defaultdict
 
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -159,6 +160,7 @@ def flow():
                 print(f'\tReverse: {old_reverse_path}')
                 print(f'\tMoving to {new_reverse_path}\n\n')
 
+
 def flow_cli(args):
     flow()
 
@@ -177,6 +179,27 @@ def command_line_interface():
 
     args = parser.parse_args()
     args.func(args)
+
+
+def load_metadata_dictionary():
+    f = open('data/metadata.tsv', 'r')
+    reader = csv.DictReader(f, delimiter='\t')
+    md_dict = defaultdict(lambda: defaultdict(list))
+    current_sample = None
+    counter = 0
+
+    for row in reader:
+        sample_id = row['SampleId']
+        replicate = row['Replicate']
+
+        if sample_id != current_sample:
+            current_sample = sample_id
+            counter = 1
+        else:
+            counter += 1
+        md_dict[sample_id][replicate].append(counter)
+    f.close()
+    return md_dict
 
 
 def genbank_to_gtf(gbk_file, gtf_file):

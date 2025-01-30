@@ -1,6 +1,7 @@
 import os
 import csv
 import json
+from itertools import product
 
 import pandas as pd
 
@@ -14,12 +15,8 @@ wildcard_constraints:
 configfile: "config.yml"
 
 REFERENCE = config['reference']
-with open(os.path.join('data', 'samples.txt')) as samples_file:
-    SAMPLES = [line.strip() for line in samples_file.readlines()]
-REPLICATES = range(1, 3)
-
-
 reference_dictionary = load_reference_dictionary(REFERENCE)
+metadata_dictionary = load_metadata_dictionary()
 SEGMENTS = reference_dictionary.keys()
 
 rule fetch_reference_data:
@@ -96,6 +93,40 @@ rule coding_regions:
                 gb_to_segkey[k]: v
                 for k, v  in coding_regions.items()
             }, json_file, indent=2)
+
+
+
+def forward_fastq_merge_inputs(wildcards):
+    experiments = metadata_dictionary[wildcards.sample][wildcards.replicate]
+    forward_path = 'data/%s/sequencing-{sequencing}/forward.fastq.gz' % wildcards.sample
+    return expand(
+        forward_path,
+        sequencing=metadata_dictionary[wildcards.sample]
+    )
+
+
+def reverse_fastq_merge_inputs(wildcards):
+    experiments = metadata_dictionary[wildcards.sample][wildcards.replicate]
+    reverse_path = 'data/%s/sequencing-{sequencing}/reverse.fastq.gz' % wildcards.sample
+    return expand(
+        reverse_path,
+        sequencing=metadata_dictionary[wildcards.sample]
+    )
+
+
+rule concatenate_experiments_to_replicates:
+    input:
+        forward=forward_fastq_merge_inputs,
+        # reverse is reserved for internal Snakemake use! So we append an _
+        reverse_=reverse_fastq_merge_inputs
+    output:
+        forward='data/{sample}/replicate-{replicate}/forward.fastq.gz',
+        reverse_='data/{sample}/replicate-{replicate}/reverse.fastq.gz'
+    shell:
+        '''
+            gzip -dc {input.forward} > {output.forward}
+            gzip -dc {input.reverse_} > {output.reverse_}
+        '''
 
 rule trimmomatic:
     message:
@@ -175,7 +206,6 @@ rule mapping:
                 -S {output.sam} \
                 > {output.stdout} 2> {output.stderr}
         '''
-
 
 rule samtools:
     message:
@@ -384,14 +414,17 @@ rule clean_varscan:
         df = pd.read_csv(input[0], sep='\t')
         clean_varscan(df).to_csv(output[0], sep='\t', index=False)
 
+def merge_varscan_inputs(wildcards):
+    replicates = metadata_dictionary[wildcards.sample][wildcards.replicates]
+    expand(
+        'data/{{sample}}/replicate-{replicate}/remapping/ml.tsv',
+        replicate=range(1, len(replicates) + 1)
+    )
+
 rule merge_varscan_across_replicates:
     message:
         'Merging variant calls of sample {wildcards.sample}...'
-    input:
-        expand(
-            'data/{{sample}}/replicate-{replicate}/remapping/ml.tsv',
-            replicate=REPLICATES
-        )
+    input: merge_varscan_inputs
     output:
         'data/{sample}/ml.tsv'
     run:
@@ -407,12 +440,19 @@ rule visualize_replicate_calls:
     run:
         replicate_variant_plot(input[0], output[0])
 
+
+def full_coverage_summary_input(wildcards):
+    coverage_filepaths = []
+    for sample, replicates in metadata_dictionary.items():
+        for replicate in replicates.keys():
+            coverage_filepaths.append(
+                f'data/{sample}/replicate-{replicate}/remapping/coverage-summary.tsv'
+            )
+    return coverage_filepaths
+
+
 rule full_coverage_summary:
-    input:
-        expand(
-            'data/{sample}/replicate-{replicate}/remapping/coverage-summary.tsv',
-            sample=SAMPLES, replicate=REPLICATES
-        )
+    input: full_coverage_summary_input
     output:
         'data/coverage-summary.tsv',
     run:
@@ -420,10 +460,10 @@ rule full_coverage_summary:
 
 rule full_segment:
     input:
-        expand(
-            'data/{sample}/replicate-1/remapping/segments/{{segment}}.fasta',
-            sample=SAMPLES
-        )
+        #expand(
+        #    'data/{sample}/replicate-{replicate}/remapping/segments/{{segment}}.fasta',
+        #    sample=SAMPLES
+        #)
     output:
         'data/{segment}.fasta'
     shell:
@@ -442,8 +482,7 @@ rule all_full_segments:
 
 rule all:
     input:
-        rules.full_coverage_summary.output[0],
-        rules.all_full_segments.output[0]
+        rules.full_coverage_summary.output[0]
 
 rule clean:
     shell:
