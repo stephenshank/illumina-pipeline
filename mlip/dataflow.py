@@ -103,7 +103,7 @@ def convert_forward_to_reverse(fastq_path):
     return os.path.join(dirname, new_filename)
 
 
-def flow():
+def flow(args):
     with open('data/metadata.tsv', 'r') as f:
         reader = csv.DictReader(f, delimiter='\t')
         rows = list(reader)
@@ -140,15 +140,17 @@ def flow():
                 fastq_hash[fastq_token]['seen'] = True
 
                 directory_path = os.path.join('data', sample_id, f'sequencing-{counter[sample_id]}')
-                os.makedirs(directory_path, exist_ok=True)
+                if not args.dry_run:
+                    os.makedirs(directory_path, exist_ok=True)
 
                 old_forward_path = fastq_hash[fastq_token]['path']
                 new_forward_path = os.path.join(directory_path, 'forward.fastq.gz')
-                shutil.copy(old_forward_path, new_forward_path)
-
                 old_reverse_path = fastq_hash[fastq_token]['reverse']
                 new_reverse_path = os.path.join(directory_path, 'reverse.fastq.gz')
-                shutil.copy(old_reverse_path, new_reverse_path)
+
+                if not args.dry_run:
+                    shutil.copy(old_forward_path, new_forward_path)
+                    shutil.copy(old_reverse_path, new_reverse_path)
 
                 print(f"{sample_id}: sequencing experiment {counter[sample_id]}, replicate {row['Replicate']}")
                 print(f'\tForward: {old_forward_path}')
@@ -160,7 +162,7 @@ def flow():
 
 
 def flow_cli(args):
-    flow()
+    flow(args)
 
 
 def command_line_interface():
@@ -173,6 +175,7 @@ def command_line_interface():
     pre_parser.set_defaults(func=preprocess_cli)
 
     flow_parser = subparsers.add_parser("flow", help="Move data based on metadata spreadsheet.")
+    flow_parser.add_argument("-n", "--dry-run", required=False, action="store_true", default=False, help="Show how FASTQs will move, but don't actually move them")
     flow_parser.set_defaults(func=flow_cli)
 
     args = parser.parse_args()
