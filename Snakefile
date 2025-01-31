@@ -458,12 +458,19 @@ rule full_coverage_summary:
     run:
         coverage_summary(input, output[0])
 
+
+def full_segment_input(wildcards):
+    segment_filepaths = []
+    for sample, replicates in metadata_dictionary.items():
+        for replicate in replicates.keys():
+            segment_filepaths.append(
+                f'data/{sample}/replicate-{replicate}/remapping/segments/{wildcards.segment}.fasta'
+            )
+    return segment_filepaths
+
+
 rule full_segment:
-    input:
-        #expand(
-        #    'data/{sample}/replicate-{replicate}/remapping/segments/{{segment}}.fasta',
-        #    sample=SAMPLES
-        #)
+    input: full_segment_input
     output:
         'data/{segment}.fasta'
     shell:
