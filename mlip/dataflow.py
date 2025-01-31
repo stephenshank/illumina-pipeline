@@ -15,10 +15,8 @@ import pandas as pd
 import yaml
 
 
-def load_config():
-    with open('config.yml') as config_file:
-        config = yaml.safe_load(config_file)
-    return config
+with open('config.yml') as config_file:
+    config = yaml.safe_load(config_file)
 
 
 def load_reference_dictionary(subtype):
@@ -108,7 +106,6 @@ def flow(args):
         reader = csv.DictReader(f, delimiter='\t')
         rows = list(reader)
 
-    config = load_config()
     fastq_paths = [
         str(fastq_path)
         for fastq_path in Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
@@ -267,15 +264,28 @@ def merge_varscan_io(input_tsv_filepaths, output_tsv_filepath):
         merged_df.to_csv(output_tsv_filepath, sep='\t')
 
 
+consensus_coverage = config['rule_call_consensus_min_coverage']
+variant_coverage = config['rule_call_variants_min_coverage']
+coverage_bucket_labels = [
+    '0x',
+    f'1-{consensus_coverage}x',
+    f'{consensus_coverage}-{variant_coverage}x',
+    f'{variant_coverage}-1000x',
+    '1000x+'
+]
+
+
 def assign_coverage_bucket(coverage):
     if coverage == 0:
-        return '0x'
-    elif 1 <= coverage <= 100:
-        return '1-100x'
-    elif 101 <= coverage <= 1000:
-        return '100-1000x'
+        return coverage_bucket_labels[0]
+    elif 1 <= coverage <= consensus_coverage:
+        return coverage_bucket_labels[1]
+    elif consensus_coverage <= coverage <= variant_coverage:
+        return coverage_bucket_labels[2]
+    elif variant_coverage <= coverage <= 1000:
+        return coverage_bucket_labels[3]
     else:
-        return '1000x+'
+        return coverage_bucket_labels[4]
 
 
 def compute_coverage_categories(df):
@@ -292,7 +302,7 @@ def compute_coverage_categories(df):
     
     # Create all possible combinations of segments and coverage buckets
     all_buckets = pd.DataFrame({
-        'coverage_bucket': ['0x', '1-100x', '100-1000x', '1000x+']
+        'coverage_bucket': coverage_bucket_labels
     })
     segments = df['segment'].unique()
     all_combinations = pd.MultiIndex.from_product(
@@ -314,7 +324,7 @@ def compute_coverage_categories(df):
         columns='coverage_bucket', 
         values='count', 
         fill_value=0
-    ).reset_index()
+    ).reset_index()[['segment'] + coverage_bucket_labels]
    
     desired_structure.columns.name = None
     return desired_structure
