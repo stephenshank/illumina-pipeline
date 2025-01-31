@@ -502,10 +502,11 @@ def coverage_summary(input_tsvs, output_tsv):
         df['sample_id'] = f'{sample_id}-{replicate}'
         dfs.append(df)
     full_df = pd.concat(dfs, ignore_index=True)
-    full_df['total_coverage'] = full_df['0x'] + \
-        full_df['1-100x'] + \
-        full_df['100-1000x'] + \
-        full_df['1000x+']
+    full_df['total_coverage'] = full_df[coverage_bucket_labels[0]] + \
+        full_df[coverage_bucket_labels[1]] + \
+        full_df[coverage_bucket_labels[2]] + \
+        full_df[coverage_bucket_labels[3]] + \
+        full_df[coverage_bucket_labels[4]]
 
     full_df.to_csv(output_tsv, sep='\t', index=False)
 
