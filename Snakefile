@@ -260,6 +260,7 @@ rule call_variants:
     shell:
         '''
             samtools mpileup -A \
+                -Q 0 \
                 -d 1000000 \
                 -f {input.reference} \
                 {input.bam} > {output.pileup} 2>> {input.stderr}
@@ -468,13 +469,38 @@ def full_segment_input(wildcards):
             )
     return segment_filepaths
 
-
 rule full_segment:
     input: full_segment_input
     output:
         'data/{segment}.fasta'
     shell:
         'cat {input} > {output}'
+
+rule check_consensus:
+    input:
+        fasta=rules.call_consensus.output.fasta,
+        pileup=rules.call_variants.output.pileup
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus-report.tsv'
+    run:
+        check_consensus_io(input.fasta, input.pileup, output[0])
+
+def full_consensus_summary_input(wildcards):
+    consensus_filepaths = []
+    for sample, replicates in metadata_dictionary.items():
+        for replicate in replicates.keys():
+            consensus_filepaths.append(
+                f'data/{sample}/replicate-{replicate}/remapping/consensus-report.tsv'
+            )
+    return consensus_filepaths
+
+
+rule full_consensus_summary:
+    input: full_consensus_summary_input
+    output:
+        'data/consensus-summary.tsv',
+    shell:
+        'csvstack {input} > {output}'
 
 rule all_full_segments:
     input:

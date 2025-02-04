@@ -537,5 +537,149 @@ def mask_low_coverage(fasta_file, coverage_file, threshold, output_fasta):
     SeqIO.write(seq_records, output_fasta, 'fasta')
 
 
+def clean_bases(bases, ref_base):
+    """
+    Converts pileup base string to actual base calls.
+    - Replaces '.' and ',' with the reference base (strand-agnostic).
+    - Removes start of read markers (e.g., '^M') and end markers ('$').
+    - Skips insertions/deletions ('+3ATC', '-2GA').
+
+    Args:
+        bases (str): Pileup base string.
+        ref_base (str): Reference base at this position.
+
+    Returns:
+        list: Cleaned list of base calls (A, C, G, T).
+    """
+    cleaned_bases = []
+    i = 0
+
+    while i < len(bases):
+        base = bases[i]
+
+        # Handle start of read marker '^' followed by mapping quality
+        if base == '^':
+            i += 2  # Skip '^' and the following character (mapping quality)
+            continue
+
+        # Handle end of read marker '$'
+        if base == '$':
+            i += 1  # Skip the '$' marker
+            continue
+
+        # Handle insertions and deletions: + or - followed by a number and bases
+        if base in '+-':
+            i += 1  # Move past '+' or '-'
+            num_str = ''
+ 
+            # Read the number indicating the length of the indel
+            while i < len(bases) and bases[i].isdigit():
+                num_str += bases[i]
+                i += 1
+
+            indel_length = int(num_str) if num_str else 0
+            i += indel_length  # Skip over the inserted/deleted bases
+            continue
+
+        # Replace '.' and ',' with the reference base
+        if base == '.' or base == ',':
+            cleaned_bases.append(ref_base)
+        # Handle actual base calls (normalize to uppercase)
+        elif base in 'ACGTacgt':
+            cleaned_bases.append(base.upper())
+
+        i += 1  # Move to the next character
+
+    return cleaned_bases
+
+
+def parse_pileup(pileup_file):
+    """
+    Parses a samtools pileup file and extracts:
+    - The majority base at each position within each segment.
+    - The coverage (number of reads covering the position).
+ 
+    Returns:
+        dict: {segment: {position: (majority_base, coverage)}}
+    """
+    pileup_data = {}
+
+    with open(pileup_file) as f:
+        for line in f:
+            fields = line.strip().split()
+            segment = fields[0]               # Segment (e.g., chromosome, contig)
+            pos = int(fields[1])              # 1-based position
+            ref_base = fields[2].upper()      # Reference base at this position
+            cov = int(fields[3])              # Coverage
+            raw_bases = fields[4]             # Raw base string from pileup
+ 
+            cleaned_bases = clean_bases(raw_bases, ref_base)
+            counts = Counter(cleaned_bases)
+ 
+            majority_base = counts.most_common(1)[0][0] if counts else 'N'
+
+            if segment not in pileup_data:
+                pileup_data[segment] = {}
+            pileup_data[segment][pos] = (majority_base, cov)
+
+    return pileup_data
+
+
+def check_consensus(fasta_file, pileup_data, coverage_threshold):
+    """
+    Compares consensus FASTA sequences with pileup-derived majority base calls.
+    Handles multiple segments (contigs/chromosomes).
+
+    Reports discrepancies:
+    - Positions where an 'N' is present but coverage is sufficient.
+    - Positions where a base is present but coverage is below threshold (should be 'N').
+    - Positions where the consensus base doesn't match the majority base from the pileup.
+    """
+    errors = []
+
+    for record in SeqIO.parse(fasta_file, "fasta"):
+        segment = record.id  # Segment name from FASTA (should match pileup)
+        seq = record.seq.upper()
+
+        if segment not in pileup_data:
+            print(f"Warning: Segment {segment} not found in pileup.")
+            continue
+
+        for pos in range(1, len(seq) + 1):
+            base = seq[pos - 1]
+            majority_base, cov = pileup_data[segment].get(pos, ('N', 0))
+
+            expected_base = 'N' if cov < coverage_threshold else majority_base
+
+            if base != expected_base:
+                error_type = (
+                    "Unexpected N" if base == "N" and cov >= coverage_threshold else
+                    "N expected but not present" if base != "N" and cov < coverage_threshold else
+                    "Consensus base does not match majority"
+                )
+                errors.append((segment, pos, base, expected_base, cov, error_type))
+
+    # Report results
+    if errors:
+        print("Discrepancies found:")
+        print(f"{'Segment':<12}{'Pos':<8}{'Consensus':<12}{'Expected':<12}{'Coverage':<10}{'Issue'}")
+        for segment, pos, base, expected, cov, issue in errors:
+            print(f"{segment:<12}{pos:<8}{base:<12}{expected:<12}{cov:<10}{issue}")
+    else:
+        print("No discrepancies found.")
+    return errors
+
+
+def check_consensus_io(input_consensus, input_pileup, output_tsv):
+    coverage_threshold = config['rule_call_consensus_min_coverage']
+    pileup_data = parse_pileup(input_pileup)
+    output = check_consensus(input_consensus, pileup_data, coverage_threshold)
+    headers = ["Segment", "Position", "Consensus", "Expected", "Coverage", "Issue"]
+    with open(output_tsv, "w", newline='') as f:
+        writer = csv.writer(f, delimiter='\t')
+        writer.writerow(headers)
+        writer.writerows(output)
+
+
 if __name__ == '__main__':
     command_line_interface()
