@@ -670,15 +670,18 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
     return errors
 
 
-def check_consensus_io(input_consensus, input_pileup, output_tsv):
+def check_consensus_io(input_consensus, input_pileup, output_tsv, sample):
     coverage_threshold = config['rule_call_consensus_min_coverage']
     pileup_data = parse_pileup(input_pileup)
     output = check_consensus(input_consensus, pileup_data, coverage_threshold)
-    headers = ["Segment", "Position", "Consensus", "Expected", "Coverage", "Issue"]
+    headers = ["Sample", "Segment", "Position", "Consensus", "Expected", "Coverage", "Issue"]
     with open(output_tsv, "w", newline='') as f:
         writer = csv.writer(f, delimiter='\t')
         writer.writerow(headers)
-        writer.writerows(output)
+        writer.writerows([
+            [sample] + row
+            for row in output
+        ])
 
 
 if __name__ == '__main__':
