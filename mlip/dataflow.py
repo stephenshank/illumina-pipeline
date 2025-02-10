@@ -679,7 +679,7 @@ def check_consensus_io(input_consensus, input_pileup, output_tsv, sample):
         writer = csv.writer(f, delimiter='\t')
         writer.writerow(headers)
         writer.writerows([
-            [sample] + row
+            (sample, ) + row
             for row in output
         ])
 
