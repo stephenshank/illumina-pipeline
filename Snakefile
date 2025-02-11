@@ -478,12 +478,13 @@ rule full_segment:
 
 rule check_consensus:
     input:
-        fasta=rules.call_consensus.output.fasta,
+        fasta=rules.mask_consensus.output[0],
         pileup=rules.call_variants.output.pileup
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus-report.tsv'
     run:
         check_consensus_io(input.fasta, input.pileup, output[0], wildcards.sample)
+
 
 def full_consensus_summary_input(wildcards):
     consensus_filepaths = []
