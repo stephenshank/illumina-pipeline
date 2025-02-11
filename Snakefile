@@ -517,7 +517,8 @@ rule all_full_segments:
 
 rule all:
     input:
-        rules.full_coverage_summary.output[0]
+        rules.full_coverage_summary.output[0],
+        rules.full_consensus_summary.output[0]
 
 rule clean:
     shell:
