@@ -341,14 +341,15 @@ rule call_consensus:
 rule mask_consensus:
     input:
         fasta=rules.call_consensus.output.fasta,
-        coverage=rules.coverage.output.tsv
+        pileup=rules.call_variants.output.pileup
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/masked_consensus.fasta'
     run:
         mask_low_coverage(
             input.fasta,
-            input.coverage,
+            input.pileup,
             config['rule_call_consensus_min_coverage'],
+            config['tool_varscan_min_avg_qual'],
             output[0]
         )
 
