@@ -161,22 +161,38 @@ rule trimmomatic:
                 > {output.stdout} 2> {output.log}
         '''
 
+
+def situate_reference_input(wildcards):
+    if wildcards.mapping_stage == 'initial':
+        return 'data/reference/sequences.fasta'
+    else:
+        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/initial/consensus.fasta'
+
+
+rule situate_reference:
+    input:
+        situate_reference_input
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/reference/sequences.fasta'
+    shell:
+        'cp {input} {output}'
+
 rule index:
     message:
         'Indexing reference sequence...'
     input:
-        'data/{sample}/sequences.fasta'
+        rules.situate_reference.output[0]
     params:
-        'data/{sample}/index'
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index'
     output:
-        index1='data/{sample}/index.1.bt2',
-        index2='data/{sample}/index.2.bt2',
-        index3='data/{sample}/index.3.bt2',
-        index4='data/{sample}/index.4.bt2',
-        indexrev1='data/{sample}/index.rev.1.bt2',
-        indexrev2='data/{sample}/index.rev.2.bt2',
-        stdout='data/{sample}/bowtie2-stdout.txt',
-        stderr='data/{sample}/bowtie2-stderr.txt'
+        index1='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index.1.bt2',
+        index2='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index.2.bt2',
+        index3='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index.3.bt2',
+        index4='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index.4.bt2',
+        indexrev1='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index.rev.1.bt2',
+        indexrev2='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index.rev.2.bt2',
+        stdout='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/bowtie2-stdout.txt',
+        stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/reference/bowtie2-stderr.txt'
     shell:
         'bowtie2-build {input} {params} > {output.stdout} 2> {output.stderr}'
 
@@ -191,17 +207,16 @@ rule mapping:
         reverse_paired=rules.trimmomatic.output.reverse_paired,
         forward_unpaired=rules.trimmomatic.output.forward_unpaired,
         reverse_unpaired=rules.trimmomatic.output.reverse_unpaired,
-        index=lambda wildcards: f'data/{get_sample(wildcards)}/index.1.bt2'
+        index=rules.index.output.index1
     params:
-        index=lambda wildcards: f'data/{get_sample(wildcards)}/index',
-        sensitivity=lambda wildcards: '--very-sensitive' if wildcards.mapping_stage == 'initial' else ''
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index'
     output:
         sam='data/{sample}/replicate-{replicate}/{mapping_stage}/mapped.sam',
         stdout='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stdout.txt',
         stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stderr.txt'
     shell:
         '''
-            bowtie2 {params.sensitivity} -x {params.index} \
+            bowtie2 --very-sensitive -x {params} \
                 -1 {input.forward_paired} -2 {input.reverse_paired} \
                 -U {input.forward_unpaired},{input.reverse_unpaired} \
                 --local \
@@ -233,8 +248,6 @@ rule samtools:
             samtools depth {output.sorted_} > {output.depth} 2>> {output.stderr}
         '''
 
-get_reference = lambda wildcards: f'data/{get_sample(wildcards)}/sequences.fasta'
-
 rule call_variants:
     message:
         '''
@@ -249,7 +262,7 @@ rule call_variants:
     input:
         bam=rules.samtools.output.sorted_,
         stderr=rules.samtools.output.stderr,
-        reference=get_reference
+        reference=situate_reference_input
     output:
         pileup= 'data/{sample}/replicate-{replicate}/{mapping_stage}/samtools.pileup',
         vcf=    'data/{sample}/replicate-{replicate}/{mapping_stage}/varscan.vcf',
@@ -314,7 +327,7 @@ rule call_consensus:
                 SNP quality threshold: {params.tool_varscan_min_avg_qual}
         '''
     input:
-        reference=get_reference,
+        reference=situate_reference_input,
         pileup=rules.call_variants.output.pileup,
         vcf_zip=rules.call_variants.output.vcf_zip
     output:
@@ -366,16 +379,6 @@ rule pluck_segment:
             sed 's/{wildcards.segment}/{wildcards.sample}/g' | \
             sed 's/remapping/{wildcards.segment}/g' > {output}
         '''
-
-rule build_sample_reference:
-    message:
-        'Situating intrasample reference of sample {wildcards.sample} for remapping...'
-    input:
-        'data/{sample}/replicate-1/initial/consensus.fasta'
-    output:
-        'data/{sample}/sequences.fasta'
-    shell:
-        'cp {input} {output}'
 
 rule multiqc:
     message:
