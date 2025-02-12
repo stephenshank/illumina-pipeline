@@ -99,10 +99,11 @@ rule coding_regions:
 def forward_fastq_merge_inputs(wildcards):
     experiments = metadata_dictionary[wildcards.sample][wildcards.replicate]
     forward_path = 'data/%s/sequencing-{sequencing}/forward.fastq.gz' % wildcards.sample
-    return expand(
+    result = expand(
         forward_path,
-        sequencing=metadata_dictionary[wildcards.sample]
+        sequencing=metadata_dictionary[wildcards.sample][wildcards.replicate]
     )
+    return result
 
 
 def reverse_fastq_merge_inputs(wildcards):
@@ -110,7 +111,7 @@ def reverse_fastq_merge_inputs(wildcards):
     reverse_path = 'data/%s/sequencing-{sequencing}/reverse.fastq.gz' % wildcards.sample
     return expand(
         reverse_path,
-        sequencing=metadata_dictionary[wildcards.sample]
+        sequencing=metadata_dictionary[wildcards.sample][wildcards.replicate]
     )
 
 
