@@ -512,36 +512,45 @@ def coverage_summary(input_tsvs, output_tsv):
 
 
 def mask_low_coverage(fasta_file, pileup_file, cov_threshold, qual_threshold, output_fasta):
-    mask_positions = defaultdict(set)
+    """
+    Masks bases in the consensus FASTA if effective coverage is below threshold.
+ 
+    The pileup file may not contain rows for positions with zero coverage.
+    We build a dictionary of effective coverage (counting only bases with quality >= qual_threshold)
+    for each reported position. Then, for every base (1-indexed) in the FASTA, if no row exists
+    (implying zero coverage) or if the effective depth is below cov_threshold, that base is masked to 'N'.
+    """
+    # Build effective coverage dict: {segment: {position: effective_depth}}
+    eff_cov = defaultdict(dict)
     with open(pileup_file) as pf:
         for line in pf:
             if line.startswith('#') or not line.strip():
                 continue
             fields = line.strip().split('\t')
             chrom = fields[0]
-            pos = int(fields[1])  # 1-indexed
-
-            # Determine which field holds base qualities.
-            # If 5 columns, assume old SAMtools pileup: [chrom, pos, ref, bases, qualities]
-            # If 6+ columns, assume mpileup: [chrom, pos, ref, depth, bases, qualities, ...]
-            if len(fields) == 5:
-                qualities = fields[4]
-            elif len(fields) >= 6:
+            pos = int(fields[1])  # positions are 1-indexed
+            # Use mpileup format if available; else fallback to 5-column pileup
+            if len(fields) >= 6:
                 qualities = fields[5]
+            elif len(fields) == 5:
+                qualities = fields[4]
             else:
-                qualities = ''
+                qualities = ""
+            # Count only bases with quality >= qual_threshold
+            depth = sum(1 for q in qualities if (ord(q) - 33) >= qual_threshold)
+            eff_cov[chrom][pos] = depth
 
-            # Count only bases with quality >= threshold.
-            effective_depth = sum(1 for q in qualities if (ord(q) - 33) >= qual_threshold)
-            if effective_depth < cov_threshold:
-                mask_positions[chrom].add(pos - 1)  # convert to 0-index
-
-    # Process FASTA and mask flagged positions.
+    # Process each FASTA sequence
     seq_records = []
     for record in SeqIO.parse(fasta_file, 'fasta'):
         seq = list(str(record.seq))
-        for i in mask_positions.get(record.id, set()):
-            if i < len(seq):
+        segment = record.id
+        seg_cov = eff_cov.get(segment, {})  # If no pileup rows, assume zero coverage everywhere
+        # Iterate through every base position (1-indexed)
+        for i in range(len(seq)):
+            pos = i + 1
+            depth = seg_cov.get(pos, 0)
+            if depth < cov_threshold:
                 seq[i] = 'N'
         record.seq = ''.join(seq)
         seq_records.append(record)
@@ -582,7 +591,7 @@ def parse_pileup(pileup_file, qual_threshold):
     """
     Parses a samtools pileup file and, for each position,
     computes the majority base and effective coverage using only bases with quality >= qual_threshold.
-    
+
     Returns:
         dict: {segment: {position: (majority_base, effective_coverage)}}
     """
@@ -597,7 +606,7 @@ def parse_pileup(pileup_file, qual_threshold):
             ref_base = fields[2].upper()
             raw_bases = fields[4]
             qual_str = fields[5] if len(fields) >= 6 else ""
-            
+
             bases, quals = get_bases_and_qualities(raw_bases, qual_str)
             filtered = []
             for b, q in zip(bases, quals):
@@ -605,7 +614,7 @@ def parse_pileup(pileup_file, qual_threshold):
                     filtered.append(ref_base if b in ['.', ','] else b.upper())
             effective_cov = len(filtered)
             majority = Counter(filtered).most_common(1)[0][0] if filtered else 'N'
-            
+
             if segment not in pileup_data:
                 pileup_data[segment] = {}
             pileup_data[segment][pos] = (majority, effective_cov)
