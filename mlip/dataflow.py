@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 import csv
 import json
 import shutil
@@ -657,17 +658,26 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
     return errors
 
 
-def check_consensus_io(input_consensus, input_pileup, output_tsv, sample):
+def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate):
     coverage_threshold = config['rule_call_consensus_min_coverage']
     quality_threshold = config['tool_varscan_min_avg_qual']
     pileup_data = parse_pileup(input_pileup, quality_threshold)
     output = check_consensus(input_consensus, pileup_data, coverage_threshold)
-    headers = ["Sample", "Segment", "Position", "Consensus", "Expected", "Coverage", "Issue"]
+    headers = [
+        "Sample",
+        "Replicate",
+        "Segment",
+        "Position",
+        "Consensus",
+        "Expected",
+        "Coverage",
+        "Issue"
+    ]
     with open(output_tsv, "w", newline='') as f:
         writer = csv.writer(f, delimiter='\t')
         writer.writerow(headers)
         writer.writerows([
-            (sample, ) + row
+            (sample, replicate) + row
             for row in output
         ])
 

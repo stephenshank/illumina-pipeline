@@ -17,6 +17,7 @@ configfile: "config.yml"
 REFERENCE = config['reference']
 reference_dictionary = load_reference_dictionary(REFERENCE)
 metadata_dictionary = load_metadata_dictionary()
+SAMPLES = list(metadata_dictionary.keys())
 SEGMENTS = reference_dictionary.keys()
 
 rule fetch_reference_data:
@@ -478,30 +479,39 @@ rule full_segment:
     shell:
         'cat {input} > {output}'
 
-rule check_consensus:
+rule check_replicate_consensus:
     input:
         fasta=rules.mask_consensus.output[0],
         pileup=rules.call_variants.output.pileup
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus-report.tsv'
     run:
-        check_consensus_io(input.fasta, input.pileup, output[0], wildcards.sample)
+        check_consensus_io(input.fasta, input.pileup, output[0], wildcards.sample, wildcards.replicate)
 
 
 def full_consensus_summary_input(wildcards):
     consensus_filepaths = []
-    for sample, replicates in metadata_dictionary.items():
-        for replicate in replicates.keys():
-            consensus_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/consensus-report.tsv'
-            )
+    replicates = metadata_dictionary[wildcards.sample]
+    for replicate in replicates.keys():
+        consensus_filepaths.append(
+            f'data/{wildcards.sample}/replicate-{replicate}/remapping/consensus-report.tsv'
+        )
     return consensus_filepaths
 
 
-rule full_consensus_summary:
-    input: full_consensus_summary_input
+rule check_sample_consensus:
+    input:
+        full_consensus_summary_input
     output:
-        'data/consensus-summary.tsv',
+        'data/{sample}/consensus-report.tsv'
+    shell:
+        'csvstack {input} > {output}'
+
+rule full_consensus_summary:
+    input:
+        expand('data/{sample}/consensus-report.tsv', sample=SAMPLES)
+    output:
+        'data/consensus-report.tsv',
     shell:
         'csvstack {input} > {output}'
 
@@ -516,9 +526,12 @@ rule all_full_segments:
     shell:
         'cat {input} > {output}'
 
+rule all_preliminary:
+    input:
+        rules.full_coverage_summary.output[0]
+
 rule all:
     input:
-        rules.full_coverage_summary.output[0],
         rules.full_consensus_summary.output[0]
 
 rule clean:
