@@ -17,7 +17,7 @@ configfile: "config.yml"
 REFERENCE = config['reference']
 reference_dictionary = load_reference_dictionary(REFERENCE)
 metadata_dictionary = load_metadata_dictionary()
-SAMPLES = list(metadata_dictionary.keys())
+SAMPLES = samples_to_analyze()
 SEGMENTS = reference_dictionary.keys()
 
 rule fetch_reference_data:
@@ -533,10 +533,3 @@ rule all_preliminary:
 rule all:
     input:
         rules.full_consensus_summary.output[0]
-
-rule clean:
-    shell:
-        '''
-            rm $(find data -type f | grep -v forward.fastq.gz$ | grep -v reverse.fastq.gz)
-            find data -type d -empty -delete
-        '''

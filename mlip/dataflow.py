@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 import csv
-import json
+import gzip
 import shutil
 import re
 from pathlib import Path
@@ -102,6 +102,20 @@ def convert_forward_to_reverse(fastq_path):
     return os.path.join(dirname, new_filename)
 
 
+def fastq_is_low_coverage(filepath, min_reads=50):
+    try:
+        with gzip.open(filepath, 'rt') as f:
+            lines = 0
+            for line in f:
+                lines += 1
+                if lines > min_reads * 4:
+                    return False
+            return (lines // 4) < min_reads
+    except Exception as e:
+        print(f"Error reading {filepath}: {e}")
+        return True
+
+
 def flow(args):
     with open('data/metadata.tsv', 'r') as f:
         reader = csv.DictReader(f, delimiter='\t')
@@ -122,6 +136,7 @@ def flow(args):
         for token, path in zip(fastq_tokens, fastq_paths)
     }
     counter = Counter()
+    empties = []
     for row in rows:
         sample_id = row['SampleId']
         counter[sample_id] += 1
@@ -146,6 +161,12 @@ def flow(args):
                 old_reverse_path = fastq_hash[fastq_token]['reverse']
                 new_reverse_path = os.path.join(directory_path, 'reverse.fastq.gz')
 
+                # Check if fastq files are empty; if so, alert user, log sample id, and skip moving
+                if fastq_is_low_coverage(old_forward_path) or fastq_is_low_coverage(old_reverse_path):
+                    print(f"Alert: Fastq file(s) for sample {sample_id} are empty. Skipping move.")
+                    empties.append(sample_id)
+                    continue
+
                 if not args.dry_run:
                     shutil.copy(old_forward_path, new_forward_path)
                     shutil.copy(old_reverse_path, new_reverse_path)
@@ -157,6 +178,10 @@ def flow(args):
                 print(f'\tMoving to {new_reverse_path}\n\n')
         if not found_match:
             print(f'Warning! Could not find a match for {row['SequencingId']}!')
+
+    with open("data/empty.txt", "w") as empty_file:
+        for empty in set(empties):
+            empty_file.write(empty+ "\n")
 
 
 def flow_cli(args):
@@ -192,6 +217,15 @@ def load_metadata_dictionary():
         md_dict[sample_id][replicate].append(counter[sample_id])
     f.close()
     return md_dict
+
+
+def samples_to_analyze():
+    md = load_metadata_dictionary()
+    with open('data/empty.txt') as f:
+        empties = [line.strip() for line in f.readlines()]
+    for empty in empties:
+        del md[empty]
+    return md.keys()
 
 
 def genbank_to_gtf(gbk_file, gtf_file):
