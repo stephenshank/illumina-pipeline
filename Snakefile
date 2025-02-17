@@ -570,3 +570,12 @@ rule all_preliminary:
 rule all:
     input:
         rules.full_consensus_summary.output[0]
+
+rule zip:
+    input:
+        rules.full_coverage_summary.output[0],
+        rules.full_consensus_summary.output[0]
+    output:
+        'data/project.zip'
+    shell:
+        'zip {output} $(find data -type f | grep -v -e fastq -e bam -e sam)'
