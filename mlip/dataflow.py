@@ -299,8 +299,8 @@ def merge_varscan_io(input_tsv_filepaths, output_tsv_filepath):
         merged_df.to_csv(output_tsv_filepath, sep='\t')
 
 
-consensus_coverage = config['rule_call_consensus_min_coverage']
-variant_coverage = config['rule_call_variants_min_coverage']
+consensus_coverage = config['consensus_minimum_coverage']
+variant_coverage = config['variants_minimum_coverage']
 coverage_bucket_labels = [
     '0x',
     f'1-{consensus_coverage}x',
@@ -693,8 +693,8 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
 
 
 def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate):
-    coverage_threshold = config['rule_call_consensus_min_coverage']
-    quality_threshold = config['tool_varscan_min_avg_qual']
+    coverage_threshold = config['consensus_minimum_coverage']
+    quality_threshold = config['minimum_quality_score']
     pileup_data = parse_pileup(input_pileup, quality_threshold)
     output = check_consensus(input_consensus, pileup_data, coverage_threshold)
     headers = [

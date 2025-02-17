@@ -1,11 +1,10 @@
-reference: h5n1                       # Reference to be used
-data_root_directory: "~/BaseSpace"    # Directory where data from BaseSpaces has been downloaded
-rule_trimmomatic_min_length: 50       # Discard reads below this length after trimming
-rule_trimmomatic_window_size: 5       # Slide along reads in windows of this size during trimming
-rule_trimmomatic_trim_qscore: 30      # Trim reads using a quality score threshold
-tool_varscan_min_avg_qual: 30         # Base quality threshold for SNP calling
-tool_varscan_strand_filter: 1         # Implement strand filter for SNV calling (1 = yes, 0 = no)
-rule_call_consensus_min_coverage: 25  # Minimum coverage for calling a consensus base
-rule_call_consensus_min_var_freq: .5  # SNP frequency cutoff for calling a consensus base
-rule_call_variants_min_coverage: 100  # Minimum coverage for calling a consensus base
-rule_call_variants_min_var_freq: .01  # SNP frequency cutoff for calling a consensus base
+reference: h5n1                     # Reference to be used
+data_root_directory: "~/BaseSpace"  # Directory where data from BaseSpaces has been downloaded
+trimming_minimum_length: 50         # Discard reads below this length after trimming
+trimming_window_size: 5             # Slide along reads in windows of this size during trimming
+minimum_quality_score: 30           # Base quality threshold for SNP calling
+consensus_minimum_coverage: 25      # Minimum coverage for calling a consensus base
+consensus_minimum_frequency: .5     # SNP frequency cutoff for calling a consensus base
+variants_minimum_coverage: 100      # Minimum coverage for calling a consensus base
+variants_minimum_frequency : .01    # SNP frequency cutoff for calling a consensus base
+strand_filter: 1                    # Implement strand filter for SNV calling (1 = yes, 0 = no)

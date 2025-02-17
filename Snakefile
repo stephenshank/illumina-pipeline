@@ -158,8 +158,8 @@ rule trimmomatic:
                 {input.forward} {input.reverse_} \
                 {output.forward_paired} {output.forward_unpaired} \
                 {output.reverse_paired} {output.reverse_unpaired} \
-                SLIDINGWINDOW:{params.rule_trimmomatic_window_size}:{params.rule_trimmomatic_trim_qscore} \
-                MINLEN:{params.rule_trimmomatic_min_length} \
+                SLIDINGWINDOW:{params.trimming_window_size}:{params.minimum_quality_score} \
+                MINLEN:{params.trimming_minimum_length} \
                 > {output.stdout} 2> {output.log}
         '''
 
@@ -256,10 +256,10 @@ rule call_variants:
             Calling variants on replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
                 Mapping stage: {wildcards.mapping_stage}
-                SNP frequency: {params.rule_call_variants_min_var_freq}
-                Minimum coverage for variant calling: {params.rule_call_consensus_min_coverage}
-                Strand filter: {params.tool_varscan_strand_filter}
-                SNP quality threshold: {params.tool_varscan_min_avg_qual}
+                SNP frequency: {params.variants_minimum_frequency}
+                Minimum coverage for variant calling: {params.variants_minimum_coverage}
+                Strand filter: {params.variant_strand_filter}
+                SNP quality threshold: {params.minimum_quality_score}
         '''
     input:
         bam=rules.samtools.output.sorted_,
@@ -282,10 +282,10 @@ rule call_variants:
                 -f {input.reference} \
                 {input.bam} > {output.pileup} 2>> {input.stderr}
             varscan mpileup2snp {output.pileup} \
-                --min-coverage {params.rule_call_consensus_min_coverage} \
-                --min-avg-qual {params.tool_varscan_min_avg_qual} \
-                --min-var-freq {params.rule_call_variants_min_var_freq} \
-                --strand-filter {params.tool_varscan_strand_filter} \
+                --min-coverage {params.variants_minimum_coverage} \
+                --min-avg-qual {params.minimum_quality_score} \
+                --min-var-freq {params.variants_minimum_frequency} \
+                --strand-filter {params.variants_strand_filter} \
                 --output-vcf 1 > {output.vcf} 2> {output.stderr}
             grep -v '^##' {output.vcf} > {output.tsv}
             bgzip -c {output.vcf} > {output.vcf_zip}
@@ -323,10 +323,10 @@ rule call_varscan_consensus:
             Calling consensus on replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
                 Mapping stage: {wildcards.mapping_stage}
-                SNP frequency: {params.rule_call_consensus_min_var_freq}
-                Minimum coverage for consensus calling: {params.rule_call_consensus_min_coverage}
-                Strand filter: {params.tool_varscan_strand_filter}
-                SNP quality threshold: {params.tool_varscan_min_avg_qual}
+                SNP frequency: {params.consensus_minimium_frequency}
+                Minimum coverage for consensus calling: {params.consensus_minimum_coverage}
+                Strand filter: {params.strand_filter}
+                SNP quality threshold: {params.minimum_quality_score}
         '''
     input:
         reference=situate_reference_input,
@@ -344,10 +344,10 @@ rule call_varscan_consensus:
     shell:
         '''
             varscan mpileup2cns {input.pileup} \
-                --min-coverage {params.rule_call_consensus_min_coverage} \
-                --min-avg-qual {params.tool_varscan_min_avg_qual} \
-                --min-var-freq {params.rule_call_consensus_min_var_freq} \
-                --strand-filter {params.tool_varscan_strand_filter} \
+                --min-coverage {params.consensus_minimum_coverage} \
+                --min-avg-qual {params.minimum_quality_score} \
+                --min-var-freq {params.consensus_minimum_frequency} \
+                --strand-filter {params.strand_filter} \
                 --output-vcf 1 > {output.vcf}
             bgzip -c {output.vcf} > {output.vcf_zip}
             tabix -p vcf {output.vcf_zip}
@@ -365,13 +365,19 @@ rule call_segment_consensus:
         reference='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reference.fasta',
         sam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reheader.sam',
         bam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam'
+    params:
+        **config
     shell:
         '''
             seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
             samtools view -H {input.bam} | grep -E "^@HD|^@PG|^@SQ.*SN:{wildcards.segment}" > {output.sam}
             samtools view {input.bam} {wildcards.segment} >> {output.sam}
             samtools view -bS {output.sam} > {output.bam}
-            viral_consensus -i {output.bam} -r {output.reference} -o {output.vc_fasta}
+            viral_consensus -i {output.bam} \
+                --ref_genome {output.reference} \
+                --out_consensus {output.vc_fasta} \
+                --min_depth {params.consensus_minimum_coverage} \
+                --min_qual {params.minimum_quality_score}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.vc_fasta} >> {output.fasta}
         '''
@@ -397,8 +403,8 @@ rule mask_consensus:
         mask_low_coverage(
             input.fasta,
             input.pileup,
-            config['rule_call_consensus_min_coverage'],
-            config['tool_varscan_min_avg_qual'],
+            config['consensus_minimum_coverage'],
+            config['minimum_quality_score'],
             output[0]
         )
 
