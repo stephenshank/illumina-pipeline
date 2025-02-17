@@ -137,9 +137,9 @@ rule trimmomatic:
         '''
             Trimming replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
-                Window size: {params.rule_trimmomatic_window_size}
-                Q-score: {params.rule_trimmomatic_trim_qscore}
-                Minimum length: {params.rule_trimmomatic_min_length}
+                Window size: {params.trimming_window_size}
+                Q-score: {params.minimum_quality_score}
+                Minimum length: {params.trimming_minimum_length}
         '''
     input:
         forward='data/{sample}/replicate-{replicate}/forward.fastq.gz',
@@ -258,7 +258,7 @@ rule call_variants:
                 Mapping stage: {wildcards.mapping_stage}
                 SNP frequency: {params.variants_minimum_frequency}
                 Minimum coverage for variant calling: {params.variants_minimum_coverage}
-                Strand filter: {params.variant_strand_filter}
+                Strand filter: {params.strand_filter}
                 SNP quality threshold: {params.minimum_quality_score}
         '''
     input:
@@ -285,7 +285,7 @@ rule call_variants:
                 --min-coverage {params.variants_minimum_coverage} \
                 --min-avg-qual {params.minimum_quality_score} \
                 --min-var-freq {params.variants_minimum_frequency} \
-                --strand-filter {params.variants_strand_filter} \
+                --strand-filter {params.strand_filter} \
                 --output-vcf 1 > {output.vcf} 2> {output.stderr}
             grep -v '^##' {output.vcf} > {output.tsv}
             bgzip -c {output.vcf} > {output.vcf_zip}
