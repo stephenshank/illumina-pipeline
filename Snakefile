@@ -10,7 +10,9 @@ from mlip import *
 
 wildcard_constraints:
   segment="[^/]+",
-  sample="[^/]+"
+  sample="[^/]+",
+  replicate="[^/]+",
+  mapping_stage="[^/]+"
 
 configfile: "config.yml"
 
@@ -315,7 +317,7 @@ rule coverage_summary:
     run:    
         compute_coverage_categories_io(input[0], output[0])
 
-rule call_consensus:
+rule call_varscan_consensus:
     message:
         '''
             Calling consensus on replicate {wildcards.replicate} of sample {wildcards.sample}...
@@ -331,10 +333,10 @@ rule call_consensus:
         pileup=rules.call_variants.output.pileup,
         vcf_zip=rules.call_variants.output.vcf_zip
     output:
-        vcf='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf',
-        vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz',
-        index='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.vcf.gz.tbi',
-        fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
+        vcf='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf',
+        vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz',
+        index='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz.tbi',
+        fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.fasta'
     params: **{ \
         **config, \
         'initial_mapping_stage': lambda wildcards: 'genbank' if wildcards.mapping_stage == 'initial' else 'initial' \
@@ -353,9 +355,41 @@ rule call_consensus:
             sed -i 's/{params.initial_mapping_stage}/{wildcards.mapping_stage}/g' {output.fasta}
         '''
 
+rule call_segment_consensus:
+    input:
+        bam=rules.samtools.output.sorted_,
+        reference=situate_reference_input
+    output:
+        vc_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_consensus.fasta',
+        fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/consensus.fasta',
+        reference='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reference.fasta',
+        sam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reheader.sam',
+        bam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam'
+    shell:
+        '''
+            seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
+            samtools view -H {input.bam} | grep -E "^@HD|^@PG|^@SQ.*SN:{wildcards.segment}" > {output.sam}
+            samtools view {input.bam} {wildcards.segment} >> {output.sam}
+            samtools view -bS {output.sam} > {output.bam}
+            viral_consensus -i {output.bam} -r {output.reference} -o {output.vc_fasta}
+            echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
+            tail -n +2 {output.vc_fasta} >> {output.fasta}
+        '''
+
+rule call_consensus:
+    input:
+        expand(
+            'data/{{sample}}/replicate-{{replicate}}/{{mapping_stage}}/{segment}/consensus.fasta',
+            segment=SEGMENTS
+        )
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
+    shell:
+        'cat {input} > {output}'
+
 rule mask_consensus:
     input:
-        fasta=rules.call_consensus.output.fasta,
+        fasta=rules.call_consensus.output[0],
         pileup=rules.call_variants.output.pileup
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/masked_consensus.fasta'
