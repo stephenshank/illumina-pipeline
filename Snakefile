@@ -126,6 +126,15 @@ rule concatenate_experiments_to_replicates:
     output:
         forward='data/{sample}/replicate-{replicate}/forward.fastq.gz',
         reverse_='data/{sample}/replicate-{replicate}/reverse.fastq.gz'
+    message:
+        '''
+            Concatenating
+                {input.forward}
+            to {output.forward}
+            as well as 
+                {input.reverse_}
+            to {output.reverse_}...
+        '''
     shell:
         '''
             gzip -dc {input.forward} | gzip > {output.forward}
@@ -323,7 +332,7 @@ rule call_varscan_consensus:
             Calling consensus on replicate {wildcards.replicate} of sample {wildcards.sample}...
             Parameters:
                 Mapping stage: {wildcards.mapping_stage}
-                SNP frequency: {params.consensus_minimium_frequency}
+                SNP frequency: {params.consensus_minimum_frequency}
                 Minimum coverage for consensus calling: {params.consensus_minimum_coverage}
                 Strand filter: {params.strand_filter}
                 SNP quality threshold: {params.minimum_quality_score}
@@ -334,6 +343,7 @@ rule call_varscan_consensus:
         vcf_zip=rules.call_variants.output.vcf_zip
     output:
         vcf='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf',
+        tsv='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.tsv',
         vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz',
         index='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz.tbi',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.fasta'
@@ -353,6 +363,7 @@ rule call_varscan_consensus:
             tabix -p vcf {output.vcf_zip}
             cat {input.reference} | bcftools consensus {output.vcf_zip} > {output.fasta}
             sed -i 's/{params.initial_mapping_stage}/{wildcards.mapping_stage}/g' {output.fasta}
+            grep -v '^##' {output.vcf} > {output.tsv}
         '''
 
 rule call_segment_consensus:
@@ -361,10 +372,14 @@ rule call_segment_consensus:
         reference=situate_reference_input
     output:
         vc_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_consensus.fasta',
+        vc_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_counts.tsv',
+        vc_json='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_insertions.json',
+        pb_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/pb_counts.tsv',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/consensus.fasta',
         reference='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reference.fasta',
         sam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reheader.sam',
-        bam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam'
+        bam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam',
+        bai='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam.bai'
     params:
         **config
     shell:
@@ -373,11 +388,15 @@ rule call_segment_consensus:
             samtools view -H {input.bam} | grep -E "^@HD|^@PG|^@SQ.*SN:{wildcards.segment}" > {output.sam}
             samtools view {input.bam} {wildcards.segment} >> {output.sam}
             samtools view -bS {output.sam} > {output.bam}
+            samtools index {output.bam}
             viral_consensus -i {output.bam} \
                 --ref_genome {output.reference} \
                 --out_consensus {output.vc_fasta} \
                 --min_depth {params.consensus_minimum_coverage} \
-                --min_qual {params.minimum_quality_score}
+                --min_qual {params.minimum_quality_score} \
+                --out_pos_counts {output.vc_counts} \
+                --out_ins_counts {output.vc_json}
+            perbase base-depth -Q {params.minimum_quality_score} {output.bam} > {output.pb_counts}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.vc_fasta} >> {output.fasta}
         '''
@@ -506,7 +525,7 @@ rule full_coverage_summary:
         coverage_summary(input, output[0])
 
 
-def full_segment_input(wildcards):
+def full_genome_input(wildcards):
     segment_filepaths = []
     for sample, replicates in metadata_dictionary.items():
         for replicate in replicates.keys():
@@ -515,8 +534,8 @@ def full_segment_input(wildcards):
             )
     return segment_filepaths
 
-rule full_segment:
-    input: full_segment_input
+rule full_genome:
+    input: full_genome_input
     output:
         'data/{segment}.fasta'
     shell:
@@ -525,7 +544,7 @@ rule full_segment:
 rule check_replicate_consensus:
     input:
         fasta=rules.mask_consensus.output[0],
-        pileup=rules.call_variants.output.pileup
+
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus-report.tsv'
     run:
@@ -584,4 +603,4 @@ rule zip:
     output:
         'data/project.zip'
     shell:
-        'zip {output} $(find data -type f | grep -v -e fastq -e bam -e sam)'
+        'zip {output} $(find data -type f | grep -v -e fastq -e bam -e sam -e pileup)'
