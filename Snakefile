@@ -251,7 +251,7 @@ rule samtools:
         stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/samtools-stderr.txt'
     shell:
         '''
-            samtools view -S -b {input} > {output.mapped} 2> {output.stderr}
+            samtools view -S -b -F 0x904 -f 0x2 -q 20 {input} > {output.mapped} 2> {output.stderr}
             samtools sort {output.mapped} -o {output.sorted_} > {output.stdout} 2>> {output.stderr}
             samtools index {output.sorted_} >> {output.stdout} 2>> {output.stderr}
             samtools stats {output.sorted_} > {output.stats} 2>> {output.stderr}
@@ -285,9 +285,9 @@ rule call_variants:
         **config
     shell:
         '''
-            samtools mpileup -A \
+            samtools mpileup \
                 -Q 0 \
-                -d 1000000 \
+                -d 100000 \
                 -f {input.reference} \
                 {input.bam} > {output.pileup} 2>> {input.stderr}
             varscan mpileup2snp {output.pileup} \
@@ -322,7 +322,7 @@ rule coverage_summary:
     input:
         rules.coverage.output.tsv
     output:
-        'data/{sample}/replicate-{replicate}/{mapping_stage}/coverage-summary.tsv'
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/coverage-report.tsv'
     run:    
         compute_coverage_categories_io(input[0], output[0])
 
@@ -371,23 +371,24 @@ rule call_segment_consensus:
         bam=rules.samtools.output.sorted_,
         reference=situate_reference_input
     output:
-        vc_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_consensus.fasta',
-        vc_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_counts.tsv',
-        vc_json='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/vc_insertions.json',
-        pb_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/pb_counts.tsv',
-        fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/consensus.fasta',
-        reference='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reference.fasta',
-        sam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/reheader.sam',
-        bam='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam',
-        bai='data/{sample}/replicate-{replicate}/{mapping_stage}/{segment}/segment.bam.bai'
+        vc_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/vc_consensus.fasta',
+        vc_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/vc_counts.tsv',
+        vc_json='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/vc_insertions.json',
+        pb_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/pb_counts.tsv',
+        fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/consensus.fasta',
+        reference='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/reference.fasta',
+        sam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/reheader.sam',
+        bam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam',
+        pileup='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.pileup',
+        bai='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam.bai'
     params:
         **config
     shell:
         '''
             seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
             samtools view -H {input.bam} | grep -E "^@HD|^@PG|^@SQ.*SN:{wildcards.segment}" > {output.sam}
-            samtools view {input.bam} {wildcards.segment} >> {output.sam}
-            samtools view -bS {output.sam} > {output.bam}
+            samtools view -F 4 {input.bam} {wildcards.segment} >> {output.sam}
+            samtools view -bS -h {output.sam} > {output.bam}
             samtools index {output.bam}
             viral_consensus -i {output.bam} \
                 --ref_genome {output.reference} \
@@ -397,6 +398,11 @@ rule call_segment_consensus:
                 --out_pos_counts {output.vc_counts} \
                 --out_ins_counts {output.vc_json}
             perbase base-depth -Q {params.minimum_quality_score} {output.bam} > {output.pb_counts}
+            samtools mpileup -A \
+                -Q 0 \
+                -d 100000 \
+                -f {output.reference} \
+                {output.bam} > {output.pileup}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.vc_fasta} >> {output.fasta}
         '''
@@ -404,40 +410,13 @@ rule call_segment_consensus:
 rule call_consensus:
     input:
         expand(
-            'data/{{sample}}/replicate-{{replicate}}/{{mapping_stage}}/{segment}/consensus.fasta',
+            'data/{{sample}}/replicate-{{replicate}}/{{mapping_stage}}/segments/{segment}/consensus.fasta',
             segment=SEGMENTS
         )
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
     shell:
         'cat {input} > {output}'
-
-rule mask_consensus:
-    input:
-        fasta=rules.call_consensus.output[0],
-        pileup=rules.call_variants.output.pileup
-    output:
-        'data/{sample}/replicate-{replicate}/{mapping_stage}/masked_consensus.fasta'
-    run:
-        mask_low_coverage(
-            input.fasta,
-            input.pileup,
-            config['consensus_minimum_coverage'],
-            config['minimum_quality_score'],
-            output[0]
-        )
-
-rule pluck_segment:
-    input:
-        rules.mask_consensus.output[0]
-    output:
-        'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}.fasta',
-    shell:
-        '''
-            seqkit grep -p "{wildcards.segment}" {input} | \
-            sed 's/{wildcards.segment}/{wildcards.sample}/g' | \
-            sed 's/remapping/{wildcards.segment}/g' > {output}
-        '''
 
 rule multiqc:
     message:
@@ -512,7 +491,7 @@ def full_coverage_summary_input(wildcards):
     for sample, replicates in metadata_dictionary.items():
         for replicate in replicates.keys():
             coverage_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/coverage-summary.tsv'
+                f'data/{sample}/replicate-{replicate}/remapping/coverage-report.tsv'
             )
     return coverage_filepaths
 
@@ -520,7 +499,7 @@ def full_coverage_summary_input(wildcards):
 rule full_coverage_summary:
     input: full_coverage_summary_input
     output:
-        'data/coverage-summary.tsv',
+        'data/coverage-report.tsv',
     run:
         coverage_summary(input, output[0])
 
@@ -530,7 +509,7 @@ def full_genome_input(wildcards):
     for sample, replicates in metadata_dictionary.items():
         for replicate in replicates.keys():
             segment_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/segments/{wildcards.segment}.fasta'
+                f'data/{sample}/replicate-{replicate}/remapping/segments/{wildcards.segment}/segment.fasta'
             )
     return segment_filepaths
 
@@ -543,21 +522,26 @@ rule full_genome:
 
 rule check_replicate_consensus:
     input:
-        fasta=rules.mask_consensus.output[0],
-
+        fasta=rules.call_segment_consensus.output.fasta,
+        pileup=rules.call_segment_consensus.output.pileup,
+        varscan=rules.call_varscan_consensus.output.tsv
     output:
-        'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus-report.tsv'
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/consensus-report.tsv'
     run:
-        check_consensus_io(input.fasta, input.pileup, output[0], wildcards.sample, wildcards.replicate)
+        check_consensus_io(
+            input.fasta, input.pileup, output[0],
+            wildcards.sample, wildcards.replicate, wildcards.segment
+        )
 
 
 def full_consensus_summary_input(wildcards):
     consensus_filepaths = []
     replicates = metadata_dictionary[wildcards.sample]
     for replicate in replicates.keys():
-        consensus_filepaths.append(
-            f'data/{wildcards.sample}/replicate-{replicate}/remapping/consensus-report.tsv'
-        )
+        for segment in SEGMENTS:
+            consensus_filepaths.append(
+                f'data/{wildcards.sample}/replicate-{replicate}/remapping/segments/{segment}/consensus-report.tsv'
+            )
     return consensus_filepaths
 
 
@@ -592,7 +576,7 @@ rule all_preliminary:
     input:
         rules.full_coverage_summary.output[0]
 
-rule all:
+rule all_consensus:
     input:
         rules.full_consensus_summary.output[0]
 

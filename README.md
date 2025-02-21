@@ -24,8 +24,12 @@ Make appropriate edits to `config.yml`. This will most likely `subtype` and `dat
 ### Situate data
 
 Organize output from Illumina into the expected directory structure of this pipeline:
+
+Newline delimited BaseSpace IDs are placed into `/path/to/basespaceIDs.txt` (this can also be a CSV or TSV, though there won't be any commas or tabs... just the IDs from BaseSpace metadata spreadsheets).
+
 ```
-python mlip/dataflow.py
+python mlip/dataflow.py preprocess -f /path/to/basespaceIDs.txt
+python mlip/dataflow.py flow
 ```
 
 ### Run the pipeline
