@@ -553,6 +553,23 @@ rule check_sample_consensus:
     shell:
         'csvstack {input} > {output}'
 
+
+def all_variants_input(wildcards):
+    variant_filepaths = []
+    for sample in SAMPLES:
+        replicates = metadata_dictionary[sample]
+        for replicate in replicates.keys():
+            for segment in SEGMENTS:
+                variant_filepaths.append(
+                    f'data/{sample}/replicate-{replicate}/remapping/varscan-annotated.tsv'
+                )
+    return variant_filepaths
+
+rule all_variants:
+    input: all_variants_input
+    output: 'data/variants.tsv'
+    run: merge_variant_calls(input, output[0])
+
 rule full_consensus_summary:
     input:
         expand('data/{sample}/consensus-report.tsv', sample=SAMPLES)
