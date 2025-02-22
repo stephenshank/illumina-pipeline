@@ -460,10 +460,9 @@ rule clean_varscan:
         clean_varscan(df).to_csv(output[0], sep='\t', index=False)
 
 def merge_varscan_inputs(wildcards):
-    replicates = metadata_dictionary[wildcards.sample][wildcards.replicates]
-    expand(
+    return expand(
         'data/{{sample}}/replicate-{replicate}/remapping/ml.tsv',
-        replicate=range(1, len(replicates) + 1)
+        replicate=range(1, 3)
     )
 
 rule merge_varscan_across_replicates:
@@ -559,10 +558,9 @@ def all_variants_input(wildcards):
     for sample in SAMPLES:
         replicates = metadata_dictionary[sample]
         for replicate in replicates.keys():
-            for segment in SEGMENTS:
-                variant_filepaths.append(
-                    f'data/{sample}/replicate-{replicate}/remapping/varscan-annotated.tsv'
-                )
+            variant_filepaths.append(
+                f'data/{sample}/replicate-{replicate}/remapping/varscan-annotated.tsv'
+            )
     return variant_filepaths
 
 rule all_variants:
