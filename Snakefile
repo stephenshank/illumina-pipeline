@@ -403,7 +403,7 @@ rule call_segment_consensus:
                 -d 100000 \
                 -f {output.reference} \
                 {output.bam} > {output.pileup}
-            echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
+            echo ">{wildcards.sample}_{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.vc_fasta} >> {output.fasta}
         '''
 
@@ -508,7 +508,7 @@ def full_genome_input(wildcards):
     for sample, replicates in metadata_dictionary.items():
         for replicate in replicates.keys():
             segment_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/segments/{wildcards.segment}/segment.fasta'
+                f'data/{sample}/replicate-{replicate}/remapping/segments/{wildcards.segment}/consensus.fasta'
             )
     return segment_filepaths
 
