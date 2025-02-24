@@ -56,7 +56,7 @@ The `mapping_stage` [wildcard](https://snakemake.readthedocs.io/en/stable/snakef
 Requires [Bioconda](https://bioconda.github.io/) and [Git](https://git-scm.com/). Recommends [Miniconda](https://docs.anaconda.com/miniconda/).
 
 ```
-git clone https://github.com/monclalab/illumina-pipeline
+git clone https://github.com/moncla-lab/illumina-pipeline
 cd illumina-pipeline
 conda create -n mlip python=3.12 pandas=2 altair biopython bedtools bcftools bowtie2 multiqc samtools trimmomatic snakemake=8.27 snpeff varscan entrez-direct seqkit sed csvkit viral_consensus perbase
 ```
