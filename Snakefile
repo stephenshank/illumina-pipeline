@@ -253,7 +253,7 @@ rule samtools:
         stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/samtools-stderr.txt'
     shell:
         '''
-            samtools view -S -b -F 0x904 -f 0x2 -q 20 {input} > {output.mapped} 2> {output.stderr}
+            samtools view -S -b {input} > {output.mapped} 2> {output.stderr}
             samtools sort {output.mapped} -o {output.sorted_} > {output.stdout} 2>> {output.stderr}
             samtools index {output.sorted_} >> {output.stdout} 2>> {output.stderr}
             samtools stats {output.sorted_} > {output.stats} 2>> {output.stderr}
@@ -389,7 +389,7 @@ rule call_segment_consensus:
         '''
             seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
             samtools view -H {input.bam} | grep -E "^@HD|^@PG|^@SQ.*SN:{wildcards.segment}" > {output.sam}
-            samtools view -F 4 {input.bam} {wildcards.segment} >> {output.sam}
+            samtools view {input.bam} {wildcards.segment} >> {output.sam}
             samtools view -bS -h {output.sam} > {output.bam}
             samtools index {output.bam}
             viral_consensus -i {output.bam} \
@@ -405,7 +405,7 @@ rule call_segment_consensus:
                 -d 100000 \
                 -f {output.reference} \
                 {output.bam} > {output.pileup}
-            echo ">{wildcards.sample}_{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
+            echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.vc_fasta} >> {output.fasta}
         '''
 
@@ -541,7 +541,7 @@ def full_consensus_summary_input(wildcards):
     for replicate in replicates.keys():
         for segment in SEGMENTS:
             consensus_filepaths.append(
-                f'data/{wildcards.sample}/replicate-{replicate}/remapping/segments/{segment}/consensus-report.tsv'
+                f'data/{wildcards.sample}/replicate-{replicate}/reremapping/segments/{segment}/consensus-report.tsv'
             )
     return consensus_filepaths
 
@@ -561,7 +561,7 @@ def all_variants_input(wildcards):
         replicates = metadata_dictionary[sample]
         for replicate in replicates.keys():
             variant_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/varscan-annotated.tsv'
+                f'data/{sample}/replicate-{replicate}/reremapping/varscan-annotated.tsv'
             )
     return variant_filepaths
 
