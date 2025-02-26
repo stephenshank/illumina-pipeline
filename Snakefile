@@ -176,8 +176,10 @@ rule trimmomatic:
 def situate_reference_input(wildcards):
     if wildcards.mapping_stage == 'initial':
         return 'data/reference/sequences.fasta'
-    else:
+    elif wildcards.mapping_stage == 'remapping':
         return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/initial/consensus.fasta'
+    else:
+        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/remapping/consensus.fasta'
 
 
 rule situate_reference:
