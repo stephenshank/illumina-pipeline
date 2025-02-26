@@ -716,5 +716,27 @@ def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replic
         ])
 
 
+def merge_variant_calls(input, output):
+    dfs = []
+    for fp in input:
+        # Extract sample and replicate from the file path.
+        # Assumes structure: data/{sample}/replicate-{replicate}/remapping/ml.tsv
+        parts = os.path.normpath(fp).split(os.sep)
+        sample = parts[1]
+        replicate = parts[2].replace("replicate-", "")
+        
+        # Read the TSV and add new columns for sample and replicate
+        df = pd.read_csv(fp, sep="\t")
+        df["sample"] = sample
+        df["replicate"] = replicate
+        dfs.append(df)
+
+    # Concatenate all DataFrames and write to CSV
+    merged = pd.concat(dfs, ignore_index=True)
+    not_frameshift_variant = (merged.gene != 'PA-X') & (merged.gene != 'PB1-F2')
+    merged.loc[not_frameshift_variant].to_csv(output, index=False, sep='\t')
+
+
+
 if __name__ == '__main__':
     command_line_interface()
