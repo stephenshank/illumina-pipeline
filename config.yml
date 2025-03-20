@@ -3,8 +3,8 @@ data_root_directory: "~/BaseSpace"  # Directory where data from BaseSpaces has b
 trimming_minimum_length: 50         # Discard reads below this length after trimming
 trimming_window_size: 5             # Slide along reads in windows of this size during trimming
 minimum_quality_score: 30           # Base quality threshold for SNP calling
-consensus_minimum_coverage: 25      # Minimum coverage for calling a consensus base
-consensus_minimum_frequency: .5     # SNP frequency cutoff for calling a consensus base
+consensus_minimum_coverage: 50      # Minimum coverage for calling a consensus base
+consensus_minimum_frequency: .0     # SNP frequency cutoff for calling a consensus base
 variants_minimum_coverage: 100      # Minimum coverage for calling a consensus base
 variants_minimum_frequency : .01    # SNP frequency cutoff for calling a consensus base
 strand_filter: 1                    # Implement strand filter for SNV calling (1 = yes, 0 = no)

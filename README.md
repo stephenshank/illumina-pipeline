@@ -48,7 +48,7 @@ All paths below are assumed to be relative to the `data` directory. Relevant out
 | Consensus sequences for a given sample | `{sample}/sequences.fasta` |
 | Intrahost variant plot for multiple replicates | `{sample}/ml.html` |
 | Project wide overview of coverage | `coverage-summary.tsv` |
-| Specific sample coverage | `{sample}/replicate-{replicate}/{mapping_stage}/coverage-summary.tsv` | 
+| Specific sample coverage | `{sample}/{segment}/replicate-{replicate}/{mapping_stage}/coverage-summary.tsv` | 
 
 The `mapping_stage` [wildcard](https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#wildcards) is either `initial` or `remapping`.
 ## Installation

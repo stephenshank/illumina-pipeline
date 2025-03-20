@@ -1,6 +1,5 @@
 import os
 import sys
-import subprocess
 import csv
 import gzip
 import shutil
@@ -12,6 +11,7 @@ from collections import Counter
 
 from Bio import SeqIO
 from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 import pandas as pd
 import yaml
 
@@ -647,11 +647,13 @@ def parse_pileup(pileup_file, qual_threshold):
     quality >= qual_threshold.
     """
     pileup_data = {}
+    malformed_lines = []
     with open(pileup_file) as f:
-        for line in f:
+        for i, line in enumerate(f):
             fields = line.strip().split()
             # Skip malformed lines
             if len(fields) < 5:
+                malformed_lines.append(i+1)
                 continue
 
             segment = fields[0]
@@ -717,11 +719,103 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
     return errors
 
 
+def clip_consensus(input_alignment, output_consensus):
+    records = list(SeqIO.parse(input_alignment, "fasta"))
+    ref_seq = str(records[0].seq)
+    cons_seq = str(records[1].seq)
+    
+    first = None
+    for i, base in enumerate(ref_seq):
+        if base not in ('-', '.'):
+            first = i
+            break
+    if first is None:
+        first = 0  # if entire sequence is gaps, default to start
+
+    # Find last non-gap position by scanning backwards
+    last = None
+    for i in range(len(ref_seq)-1, -1, -1):
+        if ref_seq[i] not in ('-', '.'):
+            last = i
+            break
+    if last is None:
+        last = len(ref_seq) - 1  # if all gaps, default to full length
+
+    # Extract the corresponding region from the consensus
+    cons_region = cons_seq[first:last+1]
+    # Remove gaps from the consensus segment
+    cons_ungapped = cons_region.replace('-', '').replace('.', '')
+
+    # Create a new SeqRecord for the clipped consensus
+    clipped_record = SeqRecord(Seq(cons_ungapped),
+                               id=records[1].id,
+                               description="Consensus clipped to reference boundaries")
+
+    # Save the new consensus FASTA
+    SeqIO.write(clipped_record, output_consensus, "fasta")
+
+
+def call_sample_consensus(input_replicates, output_sample):
+    if len(input_replicates) == 1:
+        shutil.copy(input_replicates[0], output_sample)
+        return
+    unambig = set("ATCG")
+    records = [
+        SeqIO.read(input_file, 'fasta')
+        for input_file in input_replicates
+    ]
+    merged_seq = []
+    for r1, r2 in zip(records[0], records[1]):
+        if r1 == r2:
+            merged_seq.append(r1)
+        elif r1 not in unambig and r2 in unambig:
+            merged_seq.append(r2)
+        elif r2 not in unambig and r1 in unambig:
+            merged_seq.append(r1)
+        else:
+            merged_seq.append("N")
+            print(f"Warning: conflict in record {r1.id} at position {pos+1}: {b1} vs {b2}")
+    clipped_record = SeqRecord(
+        Seq(''.join(merged_seq)),
+        id=records[0].id,
+        description=''
+    )
+    SeqIO.write(clipped_record, output_sample, "fasta")
+
+
+def translate_all(segments, genbanks, output_dir, segment_ids):
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Load the consensus sequence (assumes a single record in the FASTA)
+    for segment_fasta, genbank, segment_id in zip(segments, genbank, segment_ids):
+        gb_record = next(SeqIO.parse(genbank, "genbank"))
+        for consensus_record in SeqIO.parse(segment_fasta):
+            consensus_seq = consensus_record.seq
+
+            aa_records = []
+
+            # Load the GenBank record (assumes a single record)
+            for feature in gb_record.features:
+                if feature.type == "CDS":
+                    # Extract nucleotide sequence from the consensus using GenBank CDS location
+                    nuc_seq = feature.extract(consensus_seq)
+                    # Prefer gene name, otherwise protein_id as identifier
+                    feature_id = feature.qualifiers.get("gene", feature.qualifiers.get("protein_id", ["unknown"]))[0]
+                    nuc_records.append(SeqRecord(nuc_seq, id=feature_id, description=""))
+
+                    # Account for codon_start (default is 1) and translate to amino acids
+                    codon_start = int(feature.qualifiers.get("codon_start", [1])[0])
+                    aa_seq = nuc_seq[codon_start-1:].translate(to_stop=True)
+                    aa_records.append(SeqRecord(aa_seq, id=feature_id, description=""))
+
+            # Write output FASTA files
+            SeqIO.write(aa_records, aa_out, "fasta")
+
 
 def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate):
     coverage_threshold = config['consensus_minimum_coverage']
     quality_threshold = config['minimum_quality_score']
-    pileup_data = parse_pileup(input_pileup, quality_threshold)
+    pileup_data = parse_pileup(input_pileup, 0)
     output = check_consensus(input_consensus, pileup_data, coverage_threshold)
     headers = [
         "Sample",
