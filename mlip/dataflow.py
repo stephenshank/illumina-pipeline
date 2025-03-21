@@ -201,6 +201,27 @@ def command_line_interface():
     flow_parser.add_argument("-n", "--dry-run", required=False, action="store_true", default=False, help="Show how FASTQs will move, but don't actually move them")
     flow_parser.set_defaults(func=flow_cli)
 
+    consensus_parser = subparsers.add_parser(
+        "check_consensus",
+        help="Check consensus against pileup"
+    )
+    consensus_parser.add_argument(
+        "--input-consensus", required=True, help="Input consensus file"
+    )
+    consensus_parser.add_argument(
+        "--input-pileup", required=True, help="Input pileup file"
+    )
+    consensus_parser.add_argument(
+        "--output-tsv", required=True, help="Output TSV file"
+    )
+    consensus_parser.add_argument(
+        "--sample", required=True, help="Sample name"
+    )
+    consensus_parser.add_argument(
+        "--replicate", required=True, help="Replicate identifier"
+    )
+    consensus_parser.set_defaults(func=check_consensus_cli)
+
     args = parser.parse_args()
     args.func(args)
 
@@ -719,6 +740,10 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
     return errors
 
 
+def check_consensus_cli(args):
+    check_consensus_io(args.input_consensus, args.input_pileup, args.output_tsv, args.sample, args.replicate)
+
+
 def clip_consensus(input_alignment, output_consensus):
     records = list(SeqIO.parse(input_alignment, "fasta"))
     ref_seq = str(records[0].seq)
@@ -815,7 +840,7 @@ def translate_all(segments, genbanks, output_dir, segment_ids):
 def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate):
     coverage_threshold = config['consensus_minimum_coverage']
     quality_threshold = config['minimum_quality_score']
-    pileup_data = parse_pileup(input_pileup, 0)
+    pileup_data = parse_pileup(input_pileup, quality_threshold)
     output = check_consensus(input_consensus, pileup_data, coverage_threshold)
     headers = [
         "Sample",
