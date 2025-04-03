@@ -428,10 +428,16 @@ rule fill_consensus:
     run:
         fill_consensus(input.consensus, input.reference, output[0])
 
+
+def call_sample_consensus_input(wildcards):
+    return expand(
+        'data/{{sample}}/replicate-{replicate}/reremapping/consensus.fasta',
+        replicate=metadata_dictionary[wildcards.sample].keys()
+    )
+
+
 rule call_sample_consensus:
-    input:
-        replicate1='data/{sample}/replicate-1/reremapping/consensus.fasta',
-        replicate2='data/{sample}/replicate-2/reremapping/consensus.fasta'
+    input: call_sample_consensus_input
     output:
         'data/{sample}/consensus.fasta'
     run:
