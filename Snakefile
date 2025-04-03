@@ -177,9 +177,9 @@ def situate_reference_input(wildcards):
     if wildcards.mapping_stage == 'initial':
         return 'data/reference/sequences.fasta'
     elif wildcards.mapping_stage == 'remapping':
-        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/initial/consensus.fasta'
+        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/initial/filler.fasta'
     else:
-        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/remapping/consensus.fasta'
+        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/remapping/filler.fasta'
 
 
 rule situate_reference:
@@ -229,7 +229,7 @@ rule mapping:
         stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stderr.txt'
     shell:
         '''
-            bowtie2 --very-sensitive -x {params} \
+            bowtie2 --local --very-sensitive-local -x {params} \
                 -1 {input.forward_paired} -2 {input.reverse_paired} \
                 -U {input.forward_unpaired},{input.reverse_unpaired} \
                 --local \
@@ -346,7 +346,7 @@ rule call_varscan_consensus:
     output:
         vcf='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf',
         tsv='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.tsv',
-        vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz',
+        #vcf_zip='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz',
         index='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.vcf.gz.tbi',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/varscan/consensus.fasta'
     params: **{ \
@@ -371,42 +371,41 @@ rule call_varscan_consensus:
 rule call_segment_consensus:
     input:
         bam=rules.samtools.output.sorted_,
-        reference=situate_reference_input
+        reference=situate_reference_input,
+        original_reference=rules.fetch_reference_data.output.fasta
     output:
-        vc_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/vc_consensus.fasta',
-        vc_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/vc_counts.tsv',
-        vc_json='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/vc_insertions.json',
+        ivar_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/ivar.fa',
         pb_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/pb_counts.tsv',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/consensus.fasta',
         reference='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/reference.fasta',
-        sam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/reheader.sam',
         bam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam',
         pileup='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.pileup',
         bai='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam.bai'
-    params:
-        **config
+    params: ** { \
+        **config, \
+        'ivar': 'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/ivar' \
+    }
     shell:
         '''
             seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
-            samtools view -H {input.bam} | grep -E "^@HD|^@PG|^@SQ.*SN:{wildcards.segment}" > {output.sam}
-            samtools view {input.bam} {wildcards.segment} >> {output.sam}
-            samtools view -bS -h {output.sam} > {output.bam}
+            if [ ! -s {output.reference} ]; then
+                echo "WARNING: empty reference, this is just so the pipeline runs batches to completion"
+                cp {input.original_reference} {output.reference}
+            fi
+            samtools view -b -h {input.bam} {wildcards.segment} >> {output.bam}
             samtools index {output.bam}
-            viral_consensus -i {output.bam} \
-                --ref_genome {output.reference} \
-                --out_consensus {output.vc_fasta} \
-                --min_depth {params.consensus_minimum_coverage} \
-                --min_qual {params.minimum_quality_score} \
-                --out_pos_counts {output.vc_counts} \
-                --out_ins_counts {output.vc_json}
             perbase base-depth -Q {params.minimum_quality_score} {output.bam} > {output.pb_counts}
-            samtools mpileup -A \
+            samtools mpileup -A -B \
                 -Q 0 \
                 -d 100000 \
-                -f {output.reference} \
+                -f {input.reference} \
                 {output.bam} > {output.pileup}
+            cat {output.pileup} | ivar consensus -p {params.ivar} \
+                -m {params.consensus_minimum_coverage} \
+                -q {params.minimum_quality_score} \
+                -t {params.consensus_minimum_frequency}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
-            tail -n +2 {output.vc_fasta} >> {output.fasta}
+            tail -n +2 {output.ivar_fasta} >> {output.fasta}
         '''
 
 rule call_consensus:
@@ -419,6 +418,33 @@ rule call_consensus:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/consensus.fasta'
     shell:
         'cat {input} > {output}'
+
+rule fill_consensus:
+    input:
+        consensus=rules.call_consensus.output[0],
+        reference=rules.build_genbank_reference.output[0]
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/filler.fasta'
+    run:
+        fill_consensus(input.consensus, input.reference, output[0])
+
+rule call_sample_consensus:
+    input:
+        replicate1='data/{sample}/replicate-1/reremapping/consensus.fasta',
+        replicate2='data/{sample}/replicate-2/reremapping/consensus.fasta'
+    output:
+        'data/{sample}/consensus.fasta'
+    run:
+        call_sample_consensus(input, output[0])
+
+rule call_sample_proteins:
+    input:
+        rules.call_sample_consensus.output[0],
+        expand('data/reference/{segment}/metadata.gb', segment=SEGMENTS)
+    output:
+        directory('data/{sample}/protein')
+    run:
+        translate_consensus_genes(input[0], output[0])
 
 rule multiqc:
     message:
@@ -524,8 +550,7 @@ rule full_genome:
 rule check_replicate_consensus:
     input:
         fasta=rules.call_segment_consensus.output.fasta,
-        pileup=rules.call_segment_consensus.output.pileup,
-        varscan=rules.call_varscan_consensus.output.tsv
+        pileup=rules.call_segment_consensus.output.pileup
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/consensus-report.tsv'
     run:
@@ -596,6 +621,16 @@ rule all_preliminary:
 rule all_consensus:
     input:
         rules.full_consensus_summary.output[0]
+
+rule all_protein:
+    input:
+        expand('data/{sample}/protein', sample=SAMPLES)
+
+rule all:
+    input:
+        rules.all_preliminary.input,
+        rules.all_consensus.input,
+        rules.all_protein.input
 
 rule zip:
     input:

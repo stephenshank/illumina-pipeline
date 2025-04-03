@@ -12,6 +12,7 @@ from collections import Counter
 
 from Bio import SeqIO
 from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 import pandas as pd
 import yaml
 
@@ -646,10 +647,10 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
     return errors
 
 
-def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate, segment):
+def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate):
     coverage_threshold = config['consensus_minimum_coverage']
     quality_threshold = config['minimum_quality_score']
-    pileup_data = parse_pileup(input_pileup, quality_threshold)
+    pileup_data = parse_pileup(input_pileup, 0)
     output = check_consensus(input_consensus, pileup_data, coverage_threshold)
     headers = [
         "Sample",
@@ -689,6 +690,139 @@ def merge_variant_calls(input, output):
     merged = pd.concat(dfs, ignore_index=True)
     not_frameshift_variant = (merged.gene != 'PA-X') & (merged.gene != 'PB1-F2')
     merged.loc[not_frameshift_variant].to_csv(output, index=False, sep='\t')
+
+
+unambig = set("ATCG")
+
+
+def call_sample_consensus(input_replicates, output_sample):
+
+    if len(input_replicates) == 1:
+        shutil.copy(input_replicates[0], output_sample)
+        return
+
+    # Use Biopython's built-in function to create a dictionary (assumes unique IDs)
+    dicts = [SeqIO.to_dict(SeqIO.parse(f, "fasta")) for f in input_replicates]
+    output_records = []
+
+    for rec_id in dicts[0]:
+        if rec_id not in dicts[1]:
+            continue
+
+        r1 = dicts[0][rec_id]
+        r2 = dicts[1][rec_id]
+        s1, s2 = str(r1.seq), str(r2.seq)
+
+        if not s1 or not s2:
+            if not s1 and s2:
+                print(f"Warning: record {rec_id} is empty in first replicate. Using second replicate.")
+                output_records.append(r2)
+            elif not s2 and s1:
+                print(f"Warning: record {rec_id} is empty in second replicate. Using first replicate.")
+                output_records.append(r1)
+            else:
+                print(f"Warning: record {rec_id} is empty in both replicates.")
+                output_records.append(r1)
+            continue
+
+        merged = []
+        for pos, (b1, b2) in enumerate(zip(s1, s2)):
+            if b1 == b2:
+                merged.append(b1)
+            elif b1 not in unambig and b2 in unambig:
+                merged.append(b2)
+            elif b2 not in unambig and b1 in unambig:
+                merged.append(b1)
+            else:
+                merged.append("N")
+                print(f"Warning: conflict in record {rec_id} at position {pos+1}: {b1} vs {b2}")
+
+        consensus_record = SeqRecord(Seq("".join(merged)), id=rec_id, description="")
+        output_records.append(consensus_record)
+
+    SeqIO.write(output_records, output_sample, "fasta")
+
+
+def fill_consensus(consensus_fasta, reference_fasta, filled_output):
+    consensus_dict = SeqIO.to_dict(SeqIO.parse(consensus_fasta, "fasta"))
+    reference_dict = SeqIO.to_dict(SeqIO.parse(reference_fasta, "fasta"))
+    output_records = []
+    
+    for rec_id, cons_record in consensus_dict.items():
+        if rec_id not in reference_dict:
+            print(f"Warning: {rec_id} missing in reference, skipping.")
+            continue
+
+        ref_record = reference_dict[rec_id]
+        cons_seq = str(cons_record.seq)
+        ref_seq = str(ref_record.seq)
+        
+        if len(cons_seq) != len(ref_seq):
+            print(f"Warning: sequences for {rec_id} are not aligned, skipping.")
+            continue
+
+        filled_seq = []
+        for c, r in zip(cons_seq, ref_seq):
+            # If consensus has a non-ambiguous base, use it; otherwise, fill in with the reference.
+            filled_seq.append(c if c in unambig else r)
+
+        new_record = SeqRecord(Seq("".join(filled_seq)), id=rec_id, description="")
+        output_records.append(new_record)
+    
+    SeqIO.write(output_records, filled_output, "fasta")
+
+
+def translate_consensus_genes(consensus_fasta, output_dir):
+    """
+    For each consensus record (whose id corresponds to a segment/genbank file),
+    translate each CDS gene using the consensus sequence (aligned to the GenBank).
+    The protein sequences are written to output_dir/{gene}.fasta.
+    
+    Parameters:
+      consensus_fasta : str
+          Path to consensus FASTA file.
+      genbank_dir : str
+          Directory containing GenBank files named by segment id (e.g., SEGID.gb).
+      output_dir : str
+          Directory where the translation files will be written.
+      seg_start : int, optional
+          Offset of the segment relative to the GenBank sequence (default 0).
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Load consensus records into a dict keyed by id.
+    consensus_dict = SeqIO.to_dict(SeqIO.parse(consensus_fasta, "fasta"))
+    
+    for seg_id, consensus_record in consensus_dict.items():
+        gb_file = os.path.join('data', 'reference', seg_id, 'metadata.gb')
+        try:
+            gb_record = SeqIO.read(gb_file, "genbank")
+        except Exception as e:
+            print(f"Error reading GenBank file {gb_file}: {e}")
+            continue
+        
+        cons_seq = consensus_record.seq
+        
+        # Process each CDS feature in the GenBank record.
+        for feature in gb_record.features:
+            if feature.type != "CDS":
+                continue
+            gene_start = int(feature.location.start)
+            gene_end = int(feature.location.end)
+            
+            # Map gene coordinates to consensus.
+            gene_seq = cons_seq[gene_start:gene_end]
+            
+            # Get codon table; default to standard table 1.
+            table = int(feature.qualifiers.get("transl_table", ["1"])[0])
+            protein = gene_seq.translate(table=table, to_stop=True)
+            
+            gene_id = feature.qualifiers.get("gene", [f"{gene_start}_{gene_end}"])[0]
+            output_file = os.path.join(output_dir, f"{gene_id}.fasta")
+            
+            # Write the translation. The record id is set to the segment id.
+            protein_record = SeqRecord(protein, id=seg_id, description="")
+            SeqIO.write(protein_record, output_file, "fasta")
 
 
 if __name__ == '__main__':
