@@ -556,7 +556,7 @@ rule check_replicate_consensus:
     run:
         check_consensus_io(
             input.fasta, input.pileup, output[0],
-            wildcards.sample, wildcards.replicate, wildcards.segment
+            wildcards.sample, wildcards.replicate
         )
 
 
