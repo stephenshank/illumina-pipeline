@@ -80,6 +80,14 @@ rule full_gtf:
     shell:
         'cat {input} > {output}'
 
+rule gene_list:
+    input:
+        rules.full_gtf.output[0]
+    output:
+        'data/reference/gene_list.txt'
+    run:
+        extract_genes(input[0], output[0])
+
 rule coding_regions:
     input:
         rules.full_gtf.output[0]
@@ -376,6 +384,7 @@ rule call_segment_consensus:
     output:
         ivar_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/ivar.fa',
         pb_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/pb_counts.tsv',
+        pb_counts_0='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/pb_counts_0.tsv',
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/consensus.fasta',
         reference='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/reference.fasta',
         bam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam',
@@ -395,6 +404,7 @@ rule call_segment_consensus:
             samtools view -b -h {input.bam} {wildcards.segment} >> {output.bam}
             samtools index {output.bam}
             perbase base-depth -Q {params.minimum_quality_score} {output.bam} > {output.pb_counts}
+            perbase base-depth -Q 0 {output.bam} > {output.pb_counts_0}
             samtools mpileup -A -B \
                 -Q 0 \
                 -d 100000 \
@@ -450,7 +460,7 @@ rule call_sample_proteins:
     output:
         directory('data/{sample}/protein')
     run:
-        translate_consensus_genes(input[0], output[0])
+        translate_consensus_genes(input[0], output[0], wildcards.sample)
 
 rule multiqc:
     message:
@@ -626,17 +636,23 @@ rule all_preliminary:
 
 rule all_consensus:
     input:
-        rules.full_consensus_summary.output[0]
+        rules.full_consensus_summary.output[0],
+        rules.all_full_segments.output[0]
 
 rule all_protein:
     input:
-        expand('data/{sample}/protein', sample=SAMPLES)
-
-rule all:
-    input:
-        rules.all_preliminary.input,
-        rules.all_consensus.input,
-        rules.all_protein.input
+        expand('data/{sample}/protein', sample=SAMPLES),
+        genes=rules.gene_list.output[0]
+    output:
+        "data/protein/.done"
+    shell:
+        '''
+        mkdir -p data/protein
+        for gene in $(cat {input.genes}); do
+            cat data/*/protein/$gene.fasta > data/protein/$gene.fasta
+        done
+        touch {output}
+        '''
 
 rule zip:
     input:
@@ -646,3 +662,10 @@ rule zip:
         'data/project.zip'
     shell:
         'zip {output} $(find data -type f | grep -v -e fastq -e bam -e sam -e pileup)'
+
+rule all:
+    input:
+        rules.all_preliminary.input,
+        rules.all_consensus.input,
+        rules.all_protein.input,
+        rules.zip.output

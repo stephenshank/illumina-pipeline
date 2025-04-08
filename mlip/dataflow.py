@@ -1,6 +1,5 @@
 import os
 import sys
-import glob
 import csv
 import gzip
 import shutil
@@ -21,14 +20,23 @@ with open('config.yml') as config_file:
     config = yaml.safe_load(config_file)
 
 
-def load_reference_dictionary(subtype):
+def load_reference_dictionary(virus):
     reference_dictionary = {}
     with open('references.tsv', 'r', newline='') as tsv_file:
         reader = csv.DictReader(tsv_file, delimiter='\t')
         for row in reader:
-            if row['subtype'] == subtype:
+            if row['virus'] == virus:
                 reference_dictionary[row['segment_key']] = row
     return reference_dictionary
+
+
+def extract_genes(input_gtf, output_gene_list):
+    pattern = re.compile(r'gene_id\s+"([^"]+)"')
+    with open(input_gtf) as input_file, open(output_gene_list, 'w') as output_file:
+        for line in input_file:
+            match = pattern.search(line)
+            if match:
+                output_file.write(match.group(1) + '\n')
 
 
 def check_duplicates(lines):
@@ -772,7 +780,7 @@ def fill_consensus(consensus_fasta, reference_fasta, filled_output):
     SeqIO.write(output_records, filled_output, "fasta")
 
 
-def translate_consensus_genes(consensus_fasta, output_dir):
+def translate_consensus_genes(consensus_fasta, output_dir, sample):
     """
     For each consensus record (whose id corresponds to a segment/genbank file),
     translate each CDS gene using the consensus sequence (aligned to the GenBank).
@@ -821,7 +829,7 @@ def translate_consensus_genes(consensus_fasta, output_dir):
             output_file = os.path.join(output_dir, f"{gene_id}.fasta")
             
             # Write the translation. The record id is set to the segment id.
-            protein_record = SeqRecord(protein, id=seg_id, description="")
+            protein_record = SeqRecord(protein, id=sample, description=gene_id)
             SeqIO.write(protein_record, output_file, "fasta")
 
 
