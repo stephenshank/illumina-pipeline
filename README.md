@@ -14,7 +14,7 @@ Suppose you have several FASTQs you'd like to analyze for a project that you'll 
 Get a copy of the code and set up your environment for analysis:
 
 ```
-git clone https://github.com/monclalab/illumina-pipeline MyAnalysis
+git clone https://github.com/moncla-lab/illumina-pipeline.git MyAnalysis
 cd MyAnalysis
 conda activate mlip
 ```
