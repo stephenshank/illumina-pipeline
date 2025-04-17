@@ -4,6 +4,16 @@ WARNING: This repository is a work in progress.
 
 This `README.md` is intended to be a quickstart overview. For a deeper understanding of this pipeline, please see [our documentation](https://github.com/moncla-lab/illumina-pipeline/blob/main/DOCUMENTATION.md).
 
+## Installation
+
+Requires [Bioconda](https://bioconda.github.io/) and [Git](https://git-scm.com/). Recommends [Miniconda](https://docs.anaconda.com/miniconda/).
+
+```
+git clone https://github.com/monclalab/illumina-pipeline
+cd illumina-pipeline
+conda env create -f environment.yml -n mlip
+```
+
 ## Usage
 
 Usage instructions assume you've successfully followed the installation instructions, read about and adhere to the conventions used by this software, and have a basic understanding of [conda](https://docs.conda.io/en/latest/) and [Snakemake](https://snakemake.readthedocs.io/en/stable/).
@@ -51,15 +61,6 @@ All paths below are assumed to be relative to the `data` directory. Relevant out
 | Specific sample coverage | `{sample}/replicate-{replicate}/{mapping_stage}/coverage-summary.tsv` | 
 
 The `mapping_stage` [wildcard](https://snakemake.readthedocs.io/en/stable/snakefiles/rules.html#wildcards) is either `initial` or `remapping`.
-## Installation
-
-Requires [Bioconda](https://bioconda.github.io/) and [Git](https://git-scm.com/). Recommends [Miniconda](https://docs.anaconda.com/miniconda/).
-
-```
-git clone https://github.com/monclalab/illumina-pipeline
-cd illumina-pipeline
-conda env create -f environment.yml -n mlip
-```
 
 ## Conventions
 
