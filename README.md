@@ -4,6 +4,16 @@ WARNING: This repository is a work in progress.
 
 This `README.md` is intended to be a quickstart overview. For a deeper understanding of this pipeline, please see [our documentation](./DOCUMENTATION.md).
 
+## Installation
+
+Requires [Bioconda](https://bioconda.github.io/) and [Git](https://git-scm.com/). We recommend [Miniconda](https://docs.anaconda.com/miniconda/) be used as your conda distribution.
+
+```
+git clone https://github.com/moncla-lab/illumina-pipeline
+cd illumina-pipeline
+conda create -n mlip python=3.12 pandas=2 altair biopython bedtools bcftools bowtie2 multiqc samtools trimmomatic snakemake=8.27 snpeff varscan entrez-direct seqkit sed csvkit perbase
+```
+
 ## Usage
 
 Usage instructions assume that you've successfully followed the [installation instructions](#installation), and read about and adhere to the [conventions](#conventions) used by this software. Further, it assumes a basic understanding of command line interfaces, as well as [conda](https://docs.conda.io/en/latest/) and [Snakemake](https://snakemake.readthedocs.io/en/stable/).
@@ -60,15 +70,6 @@ All paths below are assumed to be relative to the `data` directory. Element encl
 | Project wide overview of coverage | `coverage-report.tsv` |
 | Replicate specific coverage | `{sample}/replicate-{replicate}/{mapping_stage}/coverage.tsv` | 
 
-## Installation
-
-Requires [Bioconda](https://bioconda.github.io/) and [Git](https://git-scm.com/). We recommend [Miniconda](https://docs.anaconda.com/miniconda/) be used as your conda distribution.
-
-```
-git clone https://github.com/moncla-lab/illumina-pipeline
-cd illumina-pipeline
-conda create -n mlip python=3.12 pandas=2 altair biopython bedtools bcftools bowtie2 multiqc samtools trimmomatic snakemake=8.27 snpeff varscan entrez-direct seqkit sed csvkit perbase
-```
 
 ## Conventions
 
