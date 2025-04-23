@@ -8,7 +8,7 @@ import pandas as pd
 from mlip import *
 
 
-NUMBER_OF_REMAPPINGS = 3
+NUMBER_OF_REMAPPINGS = 1
 
 wildcard_constraints:
   segment="[^/]+",
@@ -189,21 +189,36 @@ rule trimmomatic:
 rule vapor_segment:
     input:
         fastq=rules.trimmomatic.output.concat,
-        reference_db='data/reference/{segment}/complete.fasta'
+        reference_db='data/reference/{segment}/all.fasta',
+        mlip_reference='data/reference/{segment}/sequence.fasta'
     output:
-        'data/{sample}/replicate-{replicate}/initial_{segment}.fa'
+        vapor_reference='data/{sample}/replicate-{replicate}/initial_reference_{segment}.fa',
+        vapor_id='data/{sample}/replicate-{replicate}/initial_id_{segment}.txt',
+        unaligned='data/{sample}/replicate-{replicate}/initial_unaligned_{segment}.fasta',
+        aligned='data/{sample}/replicate-{replicate}/initial_aligned_{segment}.fasta'
     params:
-        'data/{sample}/replicate-{replicate}/initial_{segment}'
+        'data/{sample}/replicate-{replicate}/initial_reference_{segment}'
     shell:
         '''
             vapor.py -fq {input.fastq} -fa {input.reference_db} -o {params}
-            sed -i '1s/.*/>{wildcards.segment} vapor/' {output}
+            head -n 1 {output.vapor_reference} | cut -c 2- > {output.vapor_id}
+            sed -i '1s/.*/>{wildcards.segment} vapor/' {output.vapor_reference}
+            cat {input.mlip_reference} {output.vapor_reference} > {output.unaligned}
+            mafft --preservecase {output.unaligned} > {output.aligned}
         '''
 
-rule vapor_reference:
+rule hybrid_segment:
+    input:
+        rules.vapor_segment.output.aligned
+    output:
+        'data/{sample}/replicate-{replicate}/hybrid_{segment}.fasta',
+    run:
+        fill(input[0], output[0])
+
+rule hybrid_reference:
     input:
         expand(
-            'data/{{sample}}/replicate-{{replicate}}/initial_{segment}.fa',
+            'data/{{sample}}/replicate-{{replicate}}/hybrid_{segment}.fasta',
             segment=SEGMENTS
         )
     output:
@@ -213,7 +228,10 @@ rule vapor_reference:
 
 def situate_reference_input(wildcards):
     if wildcards.mapping_stage == 'initial':
-        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/reference.fasta'
+        if config['use_vapor']:
+            return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/reference.fasta'
+        else:
+            return 'data/reference/sequences.fasta',
     elif wildcards.mapping_stage == 'remapping-1':
         return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/initial/filler.fasta'
     mapping_stage_int = int(wildcards.mapping_stage.split('-')[1]) - 1
@@ -410,7 +428,7 @@ rule call_segment_consensus:
     input:
         bam=rules.samtools.output.sorted_,
         reference=situate_reference_input,
-        original_reference=rules.fetch_reference_data.output.fasta
+        original_reference='data/{sample}/replicate-{replicate}/initial/reference/sequences.fasta'
     output:
         ivar_fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/ivar.fa',
         pb_counts='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/pb_counts.tsv',
@@ -418,8 +436,10 @@ rule call_segment_consensus:
         fasta='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/consensus.fasta',
         reference='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/reference.fasta',
         bam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam',
+        bai='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam.bai',
         pileup='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.pileup',
-        bai='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam.bai'
+        unaligned='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/unaligned.fasta',
+        aligned='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/aligned.fasta',
     params: ** { \
         **config, \
         'ivar': 'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/ivar' \
@@ -427,28 +447,28 @@ rule call_segment_consensus:
     shell:
         '''
             seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
+            samtools faidx {output.reference}
             if [ ! -s {output.reference} ]; then
                 echo "WARNING: empty reference, this is just so the pipeline runs batches to completion"
                 cp {input.original_reference} {output.reference}
             fi
-            samtools view -b -h {input.bam} {wildcards.segment} >> {output.bam}
+            samtools view -b -h {input.bam} {wildcards.segment} > {output.bam}
             samtools index {output.bam}
             perbase base-depth -Q {params.minimum_quality_score} {output.bam} > {output.pb_counts}
             perbase base-depth -Q 0 {output.bam} > {output.pb_counts_0}
-            samtools mpileup -A -B \
-                -Q 0 \
-                -d 100000 \
-                -f {input.reference} \
-                {output.bam} > {output.pileup}
+            samtools mpileup -A -B -Q 0 -d 0 -f {output.reference} {output.bam} > {output.pileup}
             cat {output.pileup} | ivar consensus -p {params.ivar} \
                 -m {params.consensus_minimum_coverage} \
                 -q {params.minimum_quality_score} \
                 -t {params.consensus_minimum_frequency}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.ivar_fasta} >> {output.fasta}
+            seqkit grep -p {wildcards.segment} {input.original_reference} > {output.unaligned}
+            cat {output.fasta} >> {output.unaligned}
+            mafft --preservecase {output.unaligned} > {output.aligned}
         '''
 
-rule call_consensus:
+rule full_consensus:
     input:
         expand(
             'data/{{sample}}/replicate-{{replicate}}/{{mapping_stage}}/segments/{segment}/consensus.fasta',
@@ -461,12 +481,23 @@ rule call_consensus:
 
 rule fill_consensus:
     input:
-        consensus=rules.call_consensus.output[0],
-        reference=rules.vapor_reference.output[0]
+        rules.call_segment_consensus.output.aligned
+    output:
+        'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/filler.fasta',
+    run:
+        fill(input[0], output[0])
+
+
+rule full_filler:
+    input:
+        expand(
+            'data/{{sample}}/replicate-{{replicate}}/{{mapping_stage}}/segments/{segment}/filler.fasta',
+            segment=SEGMENTS
+        )
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/filler.fasta'
-    run:
-        fill_consensus(input.consensus, input.reference, output[0])
+    shell:
+        'cat {input} > {output}'
 
 
 def call_sample_consensus_input(wildcards):

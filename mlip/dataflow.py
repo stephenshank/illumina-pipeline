@@ -751,35 +751,6 @@ def call_sample_consensus(input_replicates, output_sample):
     SeqIO.write(output_records, output_sample, "fasta")
 
 
-def fill_consensus(consensus_fasta, reference_fasta, filled_output):
-    consensus_dict = SeqIO.to_dict(SeqIO.parse(consensus_fasta, "fasta"))
-    reference_dict = SeqIO.to_dict(SeqIO.parse(reference_fasta, "fasta"))
-    output_records = []
-    
-    for rec_id, cons_record in consensus_dict.items():
-        if rec_id not in reference_dict:
-            print(f"Warning: {rec_id} missing in reference, skipping.")
-            continue
-
-        ref_record = reference_dict[rec_id]
-        cons_seq = str(cons_record.seq)
-        ref_seq = str(ref_record.seq)
-        
-        if len(cons_seq) != len(ref_seq):
-            print(f"Warning: sequences for {rec_id} are not aligned, skipping.")
-            continue
-
-        filled_seq = []
-        for c, r in zip(cons_seq, ref_seq):
-            # If consensus has a non-ambiguous base, use it; otherwise, fill in with the reference.
-            filled_seq.append(c if c in unambig else r)
-
-        new_record = SeqRecord(Seq("".join(filled_seq)), id=rec_id, description="")
-        output_records.append(new_record)
-    
-    SeqIO.write(output_records, filled_output, "fasta")
-
-
 def translate_consensus_genes(consensus_fasta, output_dir, sample):
     """
     For each consensus record (whose id corresponds to a segment/genbank file),
@@ -831,6 +802,25 @@ def translate_consensus_genes(consensus_fasta, output_dir, sample):
             # Write the translation. The record id is set to the segment id.
             protein_record = SeqRecord(protein, id=sample, description=gene_id)
             SeqIO.write(protein_record, output_file, "fasta")
+
+
+def fill(input_alignment, output_sequence):
+    fasta = SeqIO.parse(input_alignment, 'fasta')
+    background = next(fasta)
+    foreground = next(fasta)
+    output_bases = []
+    for background_base, foreground_base in zip(background.seq, foreground.seq):
+        if background_base != '-':
+            if not foreground_base in ['-', 'N']:
+                output_bases.append(foreground_base)
+            else:
+                output_bases.append(background_base)
+    record = SeqRecord(
+        Seq("".join(output_bases)),
+        id=foreground.id,
+        description="hybrid"
+    )
+    SeqIO.write(record, output_sequence, 'fasta')
 
 
 if __name__ == '__main__':
