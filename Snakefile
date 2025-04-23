@@ -8,6 +8,8 @@ import pandas as pd
 from mlip import *
 
 
+NUMBER_OF_REMAPPINGS = 3
+
 wildcard_constraints:
   segment="[^/]+",
   sample="[^/]+",
@@ -166,6 +168,7 @@ rule trimmomatic:
         reverse_paired='data/{sample}/replicate-{replicate}/reverse_paired.fastq',
         forward_unpaired='data/{sample}/replicate-{replicate}/forward_unpaired.fastq',
         reverse_unpaired='data/{sample}/replicate-{replicate}/reverse_unpaired.fastq',
+        concat='data/{sample}/replicate-{replicate}/concatenated.fastq',
         stdout='data/{sample}/replicate-{replicate}/trimmomatic-stdout.txt',
         log='data/{sample}/replicate-{replicate}/trimmomatic.log',
     params: **config
@@ -178,16 +181,43 @@ rule trimmomatic:
                 SLIDINGWINDOW:{params.trimming_window_size}:{params.minimum_quality_score} \
                 MINLEN:{params.trimming_minimum_length} \
                 > {output.stdout} 2> {output.log}
+            cat {output.forward_paired} {output.forward_unpaired} \
+                {output.reverse_paired} {output.reverse_unpaired} \
+                > {output.concat}
         '''
 
+rule vapor_segment:
+    input:
+        fastq=rules.trimmomatic.output.concat,
+        reference_db='data/reference/{segment}/complete.fasta'
+    output:
+        'data/{sample}/replicate-{replicate}/initial_{segment}.fa'
+    params:
+        'data/{sample}/replicate-{replicate}/initial_{segment}'
+    shell:
+        '''
+            vapor.py -fq {input.fastq} -fa {input.reference_db} -o {params}
+            sed -i '1s/.*/>{wildcards.segment} vapor/' {output}
+        '''
+
+rule vapor_reference:
+    input:
+        expand(
+            'data/{{sample}}/replicate-{{replicate}}/initial_{segment}.fa',
+            segment=SEGMENTS
+        )
+    output:
+        'data/{sample}/replicate-{replicate}/reference.fasta'
+    shell:
+        'cat {input} > {output}'
 
 def situate_reference_input(wildcards):
     if wildcards.mapping_stage == 'initial':
-        return 'data/reference/sequences.fasta'
-    elif wildcards.mapping_stage == 'remapping':
+        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/reference.fasta'
+    elif wildcards.mapping_stage == 'remapping-1':
         return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/initial/filler.fasta'
-    else:
-        return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/remapping/filler.fasta'
+    mapping_stage_int = int(wildcards.mapping_stage.split('-')[1]) - 1
+    return f'data/{wildcards.sample}/replicate-{wildcards.replicate}/remapping-{mapping_stage_int}/filler.fasta'
 
 
 rule situate_reference:
@@ -432,7 +462,7 @@ rule call_consensus:
 rule fill_consensus:
     input:
         consensus=rules.call_consensus.output[0],
-        reference=rules.build_genbank_reference.output[0]
+        reference=rules.vapor_reference.output[0]
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/filler.fasta'
     run:
@@ -441,7 +471,7 @@ rule fill_consensus:
 
 def call_sample_consensus_input(wildcards):
     return expand(
-        'data/{{sample}}/replicate-{replicate}/reremapping/consensus.fasta',
+        f'data/{{sample}}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/consensus.fasta',
         replicate=metadata_dictionary[wildcards.sample].keys()
     )
 
@@ -582,7 +612,7 @@ def full_consensus_summary_input(wildcards):
     for replicate in replicates.keys():
         for segment in SEGMENTS:
             consensus_filepaths.append(
-                f'data/{wildcards.sample}/replicate-{replicate}/reremapping/segments/{segment}/consensus-report.tsv'
+                f'data/{wildcards.sample}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/segments/{segment}/consensus-report.tsv'
             )
     return consensus_filepaths
 
@@ -602,7 +632,7 @@ def all_variants_input(wildcards):
         replicates = metadata_dictionary[sample]
         for replicate in replicates.keys():
             variant_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/reremapping/varscan-annotated.tsv'
+                f'data/{sample}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/varscan-annotated.tsv'
             )
     return variant_filepaths
 
