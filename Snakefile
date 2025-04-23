@@ -501,8 +501,9 @@ rule full_filler:
 
 
 def call_sample_consensus_input(wildcards):
+    remapping_string = f'remapping-{NUMBER_OF_REMAPPINGS}'
     return expand(
-        f'data/{{sample}}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/consensus.fasta',
+        'data/{{sample}}/replicate-{replicate}/%s/consensus.fasta' % remapping_string,
         replicate=metadata_dictionary[wildcards.sample].keys()
     )
 
@@ -566,7 +567,7 @@ rule clean_varscan:
 
 def merge_varscan_inputs(wildcards):
     return expand(
-        'data/{{sample}}/replicate-{replicate}/remapping/ml.tsv',
+        f'data/{{sample}}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/ml.tsv',
         replicate=range(1, 3)
     )
 
@@ -595,7 +596,7 @@ def full_coverage_summary_input(wildcards):
     for sample, replicates in metadata_dictionary.items():
         for replicate in replicates.keys():
             coverage_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/coverage-report.tsv'
+                f'data/{sample}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/coverage-report.tsv'
             )
     return coverage_filepaths
 
@@ -613,7 +614,7 @@ def full_genome_input(wildcards):
     for sample, replicates in metadata_dictionary.items():
         for replicate in replicates.keys():
             segment_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping/segments/{wildcards.segment}/consensus.fasta'
+                f'data/{sample}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/segments/{wildcards.segment}/consensus.fasta'
             )
     return segment_filepaths
 
