@@ -98,20 +98,23 @@ def preprocess_cli(args):
 
 
 def tokenize(identifier):
-    return identifier.lower().replace('_', '').replace('-', '')
+    return identifier.lower().replace('_', '').replace('-', '').replace('.fastq', '')
 
 
 def is_forward_fastq_path(fastq_path):
-    return fastq_path.split('_')[-2] == 'R1'
+    #return fastq_path.split('_')[-2] == 'R1'
+    return fastq_path.split('_')[-1][0] == '1'
 
 
 def convert_forward_to_reverse(fastq_path):
     dirname, filename = os.path.split(fastq_path)
-    new_filename = filename[::-1].replace("1R", "2R", 1)[::-1]  # Reverse swap
+    #new_filename = filename[::-1].replace("1R", "2R", 1)[::-1]  # Reverse swap
+    new_filename = filename.replace("_1", "_2")
     return os.path.join(dirname, new_filename)
 
 
 def fastq_is_low_coverage(filepath, min_reads=50):
+    return False
     try:
         with gzip.open(filepath, 'rt') as f:
             lines = 0
@@ -132,10 +135,10 @@ def flow(args):
 
     fastq_paths = [
         str(fastq_path)
-        for fastq_path in Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
+        for fastq_path in Path(config['data_root_directory']).expanduser().rglob('*.fastq')
         if is_forward_fastq_path(str(fastq_path))
     ]
-    fastq_tokens = [tokenize(os.path.basename(fastq_path)) for fastq_path in fastq_paths]
+    fastq_tokens = [tokenize(os.path.basename(fastq_path))[:-1] for fastq_path in fastq_paths]
     fastq_hash = {
         token: {
             'path': path,
@@ -186,6 +189,7 @@ def flow(args):
                 print(f'\tReverse: {old_reverse_path}')
                 print(f'\tMoving to {new_reverse_path}\n\n')
         if not found_match:
+            import pdb; pdb.set_trace()
             print(f'Warning! Could not find a match for {row['SequencingId']}!')
 
     with open("data/empty.txt", "w") as empty_file:

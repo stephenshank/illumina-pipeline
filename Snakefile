@@ -147,8 +147,8 @@ rule concatenate_experiments_to_replicates:
         '''
     shell:
         '''
-            gzip -dc {input.forward} | gzip > {output.forward}
-            gzip -dc {input.reverse_} | gzip > {output.reverse_}
+            gzip -c {input.forward} > {output.forward}
+            gzip -c {input.reverse_} > {output.reverse_}
         '''
 
 rule trimmomatic:
@@ -200,7 +200,10 @@ rule vapor_segment:
         'data/{sample}/replicate-{replicate}/initial_reference_{segment}'
     shell:
         '''
-            vapor.py -fq {input.fastq} -fa {input.reference_db} -o {params}
+            vapor.py -fq {input.fastq} -fa {input.reference_db} -o {params} || true
+            if [ ! -f {output.vapor_reference} ]; then
+                cp {input.mlip_reference} {output.vapor_reference}
+            fi
             head -n 1 {output.vapor_reference} | cut -c 2- > {output.vapor_id}
             sed -i '1s/.*/>{wildcards.segment} vapor/' {output.vapor_reference}
             cat {input.mlip_reference} {output.vapor_reference} > {output.unaligned}
