@@ -200,7 +200,7 @@ rule vapor_segment:
         'data/{sample}/replicate-{replicate}/initial_reference_{segment}'
     shell:
         '''
-            vapor.py -fq {input.fastq} -fa {input.reference_db} -o {params}
+            vapor.py -m .01 -fq {input.fastq} -fa {input.reference_db} -o {params}
             head -n 1 {output.vapor_reference} | cut -c 2- > {output.vapor_id}
             sed -i '1s/.*/>{wildcards.segment} vapor/' {output.vapor_reference}
             cat {input.mlip_reference} {output.vapor_reference} > {output.unaligned}
@@ -288,7 +288,6 @@ rule mapping:
             bowtie2 --local --very-sensitive-local -x {params} \
                 -1 {input.forward_paired} -2 {input.reverse_paired} \
                 -U {input.forward_unpaired},{input.reverse_unpaired} \
-                --local \
                 -S {output.sam} \
                 > {output.stdout} 2> {output.stderr}
         '''
@@ -343,11 +342,8 @@ rule call_variants:
         **config
     shell:
         '''
-            samtools mpileup \
-                -Q 0 \
-                -d 100000 \
-                -f {input.reference} \
-                {input.bam} > {output.pileup} 2>> {input.stderr}
+            samtools mpileup -aa -A -d 0 -B -Q 0 \
+                {input.reference} {input.bam} > {output.pileup} 2>> {input.stderr}
             varscan mpileup2snp {output.pileup} \
                 --min-coverage {params.variants_minimum_coverage} \
                 --min-avg-qual {params.minimum_quality_score} \
@@ -456,7 +452,7 @@ rule call_segment_consensus:
             samtools index {output.bam}
             perbase base-depth -Q {params.minimum_quality_score} {output.bam} > {output.pb_counts}
             perbase base-depth -Q 0 {output.bam} > {output.pb_counts_0}
-            samtools mpileup -A -B -Q 0 -d 0 -f {output.reference} {output.bam} > {output.pileup}
+            samtools mpileup -a -A -B -Q 0 -d 0 -f {output.reference} {output.bam} > {output.pileup}
             cat {output.pileup} | ivar consensus -p {params.ivar} \
                 -m {params.consensus_minimum_coverage} \
                 -q {params.minimum_quality_score} \
