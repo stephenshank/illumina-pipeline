@@ -280,7 +280,8 @@ def merge_varscan(clean_varscan_dfs):
             )
             variant_data = {
                 'Frequency': row['frequency'],
-                'CodingRegionChange': row['coding_region_change']
+                'CodingRegionChange': row['coding_region_change'],
+                'Gene': row['gene']
             }
             if variant_key in variant_dictionary:
                 variant_dictionary[variant_key][replicate_key] = variant_data
@@ -290,26 +291,36 @@ def merge_varscan(clean_varscan_dfs):
     variant_list = []
     for variant_key, variant_value in variant_dictionary.items():
         coding_region_change = None
+        gene = None
         for idx in range(len(clean_varscan_dfs)):
             replicate_key = 'replicate_%d' % (idx+1)
             if not replicate_key in variant_value:
                 variant_value[replicate_key] = {'Frequency': 0}
         
         flattened = {}
-        for idx, replicate_attributes in enumerate(variant_value.values()):
+        for idx in range(len(clean_varscan_dfs)):
+            replicate_key = 'replicate_%d' % (idx+1)
+            replicate_attributes = variant_value[replicate_key]
             for attribute_key, attribute_value in replicate_attributes.items():
                 if attribute_key == 'CodingRegionChange':
                     coding_region_change = attribute_value
+                elif attribute_key == 'Gene':
+                    gene = attribute_value
                 else:
                     flattened[f"{attribute_key}_{idx+1}"] = attribute_value
-        variant_list.append({
+        variant = {
             'segment': variant_key[0],
             'position': variant_key[1],
             'allele': variant_key[2],
             'coding_region_change': coding_region_change,
+            'gene': gene,
             **flattened
-        })
-    return pd.DataFrame(variant_list)
+        }
+        variant_list.append(variant)
+
+    return pd.DataFrame(variant_list).sort_values(
+        by=['segment', 'position'], ascending=[True, True]
+    )
 
 
 def merge_varscan_io(input_tsv_filepaths, output_tsv_filepath):

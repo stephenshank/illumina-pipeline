@@ -24,6 +24,7 @@ def replicate_variant_plot(input_tsv_filepath, output_html_filepath):
             alt.Tooltip('position:Q', title='Position'),
             alt.Tooltip('allele:N', title='Allele'),
             alt.Tooltip('coding_region_change:N', title='Coding region change'),
+            alt.Tooltip('gene:N', title='Gene'),
             alt.Tooltip('Frequency_1:Q', title='Frequency 1'),
             alt.Tooltip('Frequency_2:Q', title='Frequency 2')
         ]
