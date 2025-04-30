@@ -90,6 +90,14 @@ rule gene_list:
     run:
         extract_genes(input[0], output[0])
 
+rule sample_list:
+    input:
+        'data/metadata.tsv'
+    output:
+        'data/sample_list.txt'
+    shell:
+        'csvcut -t -c SampleId {input} | sort | uniq | grep -v SampleId > {output}'
+
 rule coding_regions:
     input:
         rules.full_gtf.output[0]
@@ -270,7 +278,10 @@ get_sample = lambda wildcards: 'reference' if wildcards.mapping_stage == 'initia
 
 rule mapping:
     message:
-        'Mapping replicate {wildcards.replicate} of sample {wildcards.sample} to reference...'
+        '''
+            Mapping replicate {wildcards.replicate} of sample {wildcards.sample} 
+            at stage {wildcards.mapping_stage} to reference...
+        '''
     input:
         forward_paired=rules.trimmomatic.output.forward_paired,
         reverse_paired=rules.trimmomatic.output.reverse_paired,
@@ -434,8 +445,9 @@ rule call_segment_consensus:
         bam='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam',
         bai='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.bam.bai',
         pileup='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/segment.pileup',
+        samtools='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/samtools.fasta',
         unaligned='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/unaligned.fasta',
-        aligned='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/aligned.fasta',
+        aligned='data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/aligned.fasta'
     params: ** { \
         **config, \
         'ivar': 'data/{sample}/replicate-{replicate}/{mapping_stage}/segments/{segment}/ivar' \
@@ -455,12 +467,14 @@ rule call_segment_consensus:
             samtools mpileup -a -A -B -Q 0 -d 0 -f {output.reference} {output.bam} > {output.pileup}
             cat {output.pileup} | ivar consensus -p {params.ivar} \
                 -m {params.consensus_minimum_coverage} \
-                -q {params.minimum_quality_score} \
+                -q 0 \
+                -t {params.consensus_minimum_frequency} \
                 -t {params.consensus_minimum_frequency}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.ivar_fasta} >> {output.fasta}
             seqkit grep -p {wildcards.segment} {input.original_reference} > {output.unaligned}
             cat {output.fasta} >> {output.unaligned}
+            samtools consensus --mode simple -d {params.consensus_minimum_coverage} --call-fract 0 {output.bam} > {output.samtools}
             mafft --preservecase {output.unaligned} > {output.aligned}
         '''
 
@@ -563,8 +577,8 @@ rule clean_varscan:
 
 def merge_varscan_inputs(wildcards):
     return expand(
-        f'data/{{sample}}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/ml.tsv',
-        replicate=range(1, 3)
+        'data/{{sample}}/replicate-{replicate}/remapping-%s/ml.tsv' % NUMBER_OF_REMAPPINGS,
+        replicate=range(1, len(metadata_dictionary[wildcards.sample])+1)
     )
 
 rule merge_varscan_across_replicates:
