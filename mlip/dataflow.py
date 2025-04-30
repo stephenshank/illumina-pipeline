@@ -4,6 +4,7 @@ import csv
 import gzip
 import shutil
 import re
+import json
 from pathlib import Path
 import argparse
 from collections import defaultdict
@@ -270,30 +271,42 @@ def clean_varscan(varscan_df):
 def merge_varscan(clean_varscan_dfs):
     variant_dictionary = {}
     for idx, clean_varscan_df in enumerate(clean_varscan_dfs):
-        sample_key = 'sample_%d' % (idx+1)
+        replicate_key = 'replicate_%d' % (idx+1)
         for _, row in clean_varscan_df.iterrows():
-            variant_key = (row['#CHROM'], row['POS'], row['ALT'])
-            variant_data = {'Frequency': row['Frequency']}
+            variant_key = (
+                row['segment'],
+                row['reference_position'],
+                row['reference_allele']
+            )
+            variant_data = {
+                'Frequency': row['frequency'],
+                'CodingRegionChange': row['coding_region_change']
+            }
             if variant_key in variant_dictionary:
-                variant_dictionary[variant_key][sample_key] = variant_data
+                variant_dictionary[variant_key][replicate_key] = variant_data
             else:
-                variant_dictionary[variant_key] = {sample_key: variant_data}
+                variant_dictionary[variant_key] = {replicate_key: variant_data}
     
     variant_list = []
     for variant_key, variant_value in variant_dictionary.items():
+        coding_region_change = None
         for idx in range(len(clean_varscan_dfs)):
-            sample_key = 'sample_%d' % (idx+1)
-            if not sample_key in variant_value:
-                variant_value[sample_key] = {'Frequency': 0}
+            replicate_key = 'replicate_%d' % (idx+1)
+            if not replicate_key in variant_value:
+                variant_value[replicate_key] = {'Frequency': 0}
         
         flattened = {}
-        for idx, sample_attributes in enumerate(variant_value.values()):
-            for attribute_key, attribute_value in sample_attributes.items():
-                flattened[f"{attribute_key}_{idx+1}"] = attribute_value
+        for idx, replicate_attributes in enumerate(variant_value.values()):
+            for attribute_key, attribute_value in replicate_attributes.items():
+                if attribute_key == 'CodingRegionChange':
+                    coding_region_change = attribute_value
+                else:
+                    flattened[f"{attribute_key}_{idx+1}"] = attribute_value
         variant_list.append({
             'segment': variant_key[0],
             'position': variant_key[1],
-            'alt': variant_key[2],
+            'allele': variant_key[2],
+            'coding_region_change': coding_region_change,
             **flattened
         })
     return pd.DataFrame(variant_list)
@@ -305,7 +318,7 @@ def merge_varscan_io(input_tsv_filepaths, output_tsv_filepath):
             for input_tsv_filepath in input_tsv_filepaths
         ]
         merged_df = merge_varscan(dfs)
-        merged_df.to_csv(output_tsv_filepath, sep='\t')
+        merged_df.to_csv(output_tsv_filepath, sep='\t', index=False)
 
 
 consensus_coverage = config['consensus_minimum_coverage']
@@ -378,6 +391,20 @@ def compute_coverage_categories_io(input_coverage, output_summary):
     coverage_summary_df = compute_coverage_categories(coverage_df)
     coverage_summary_df.to_csv(output_summary, sep='\t', index=False)
 
+
+def extract_coding_regions(input_gtf, input_references, output_json):
+    coding_regions = define_coding_regions(input_gtf)
+    accession_to_segment_key = {}
+    for reference in input_references:
+        _, _, segment, _ = reference.split('/')
+        record = SeqIO.read(reference, 'fasta')
+        accession = record.id
+        accession_to_segment_key[accession] = segment
+    with open(output_json, 'w') as json_file:
+        json.dump({
+            accession_to_segment_key[k]: v
+            for k, v in coding_regions.items()
+        }, json_file, indent=2)
 
 def define_coding_regions(gtf_file):
     with open(gtf_file, "r") as gtf:
@@ -682,16 +709,10 @@ def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replic
 def merge_variant_calls(input, output):
     dfs = []
     for fp in input:
-        # Extract sample and replicate from the file path.
-        # Assumes structure: data/{sample}/replicate-{replicate}/remapping/ml.tsv
-        parts = os.path.normpath(fp).split(os.sep)
+        parts = fp.split('/')
         sample = parts[1]
-        replicate = parts[2].replace("replicate-", "")
-        
-        # Read the TSV and add new columns for sample and replicate
         df = pd.read_csv(fp, sep="\t")
         df["sample"] = sample
-        df["replicate"] = replicate
         dfs.append(df)
 
     # Concatenate all DataFrames and write to CSV

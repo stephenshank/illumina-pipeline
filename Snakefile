@@ -8,7 +8,6 @@ import pandas as pd
 from mlip import *
 
 
-NUMBER_OF_REMAPPINGS = 1
 
 wildcard_constraints:
   segment="[^/]+",
@@ -23,6 +22,7 @@ reference_dictionary = load_reference_dictionary(REFERENCE)
 metadata_dictionary = load_metadata_dictionary()
 SAMPLES = samples_to_analyze()
 SEGMENTS = reference_dictionary.keys()
+NUMBER_OF_REMAPPINGS = config['number_of_remappings']
 
 rule fetch_reference_data:
     message:
@@ -100,22 +100,12 @@ rule sample_list:
 
 rule coding_regions:
     input:
-        rules.full_gtf.output[0]
+        gtf=rules.full_gtf.output[0],
+        references=expand('data/reference/{segment}/sequence.fasta', segment=SEGMENTS)
     output:
         'data/reference/coding_regions.json'
     run:
-        coding_regions = define_coding_regions(input[0])
-        gb_to_segkey = {
-            v['genbank_accession']: k
-            for k, v in reference_dictionary.items()
-        }
-        with open(output[0], 'w') as json_file:
-            json.dump({
-                gb_to_segkey[k]: v
-                for k, v  in coding_regions.items()
-            }, json_file, indent=2)
-
-
+        extract_coding_regions(input.gtf, input.references, output[0])
 
 def forward_fastq_merge_inputs(wildcards):
     experiments = metadata_dictionary[wildcards.sample][wildcards.replicate]
@@ -353,8 +343,8 @@ rule call_variants:
         **config
     shell:
         '''
-            samtools mpileup -aa -A -d 0 -B -Q 0 \
-                {input.reference} {input.bam} > {output.pileup} 2>> {input.stderr}
+            samtools mpileup -A -d 0 -B -Q 0 \
+                -f {input.reference} {input.bam} > {output.pileup} 2>> {input.stderr}
             varscan mpileup2snp {output.pileup} \
                 --min-coverage {params.variants_minimum_coverage} \
                 --min-avg-qual {params.minimum_quality_score} \
@@ -577,7 +567,7 @@ rule clean_varscan:
 
 def merge_varscan_inputs(wildcards):
     return expand(
-        'data/{{sample}}/replicate-{replicate}/remapping-%s/ml.tsv' % NUMBER_OF_REMAPPINGS,
+        'data/{{sample}}/replicate-{replicate}/remapping-%s/varscan-annotated.tsv' % NUMBER_OF_REMAPPINGS,
         replicate=range(1, len(metadata_dictionary[wildcards.sample])+1)
     )
 
@@ -667,19 +657,10 @@ rule check_sample_consensus:
     shell:
         'csvstack {input} > {output}'
 
-
-def all_variants_input(wildcards):
-    variant_filepaths = []
-    for sample in SAMPLES:
-        replicates = metadata_dictionary[sample]
-        for replicate in replicates.keys():
-            variant_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/varscan-annotated.tsv'
-            )
-    return variant_filepaths
-
 rule all_variants:
-    input: all_variants_input
+    input:
+        tsv=expand('data/{sample}/ml.tsv', sample=SAMPLES),
+        html=expand('data/{sample}/ml.html', sample=SAMPLES)
     output: 'data/variants.tsv'
     run: merge_variant_calls(input, output[0])
 
@@ -740,4 +721,5 @@ rule all:
         rules.all_preliminary.input,
         rules.all_consensus.input,
         rules.all_protein.input,
+        rules.all_variants.output,
         rules.zip.output
