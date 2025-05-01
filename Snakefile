@@ -459,7 +459,7 @@ rule call_segment_consensus:
                 -m {params.consensus_minimum_coverage} \
                 -q 0 \
                 -t {params.consensus_minimum_frequency} \
-                -t {params.consensus_minimum_frequency}
+                -c {params.consensus_minimum_frequency}
             echo ">{wildcards.segment} {wildcards.mapping_stage}" > {output.fasta}
             tail -n +2 {output.ivar_fasta} >> {output.fasta}
             seqkit grep -p {wildcards.segment} {input.original_reference} > {output.unaligned}
@@ -662,7 +662,7 @@ rule all_variants:
         tsv=expand('data/{sample}/ml.tsv', sample=SAMPLES),
         html=expand('data/{sample}/ml.html', sample=SAMPLES)
     output: 'data/variants.tsv'
-    run: merge_variant_calls(input, output[0])
+    run: merge_variant_calls(input.tsv, output[0])
 
 rule full_consensus_summary:
     input:
@@ -720,6 +720,6 @@ rule all:
     input:
         rules.all_preliminary.input,
         rules.all_consensus.input,
-        rules.all_protein.input,
+        rules.all_protein.output,
         rules.all_variants.output,
         rules.zip.output
