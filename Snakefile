@@ -608,22 +608,22 @@ rule full_coverage_summary:
     run:
         coverage_summary(input, output[0])
 
-
-def full_genome_input(wildcards):
-    segment_filepaths = []
-    for sample, replicates in metadata_dictionary.items():
-        for replicate in replicates.keys():
-            segment_filepaths.append(
-                f'data/{sample}/replicate-{replicate}/remapping-{NUMBER_OF_REMAPPINGS}/segments/{wildcards.segment}/consensus.fasta'
-            )
-    return segment_filepaths
-
 rule full_genome:
-    input: full_genome_input
+    input:
+        expand('data/{sample}/consensus.fasta', sample=SAMPLES)
     output:
         'data/{segment}.fasta'
+    params:
+        ' '.join(SAMPLES)
     shell:
-        'cat {input} > {output}'
+        '''
+          for sample in {params}; do
+            consensus_file=data/$sample/consensus.fasta
+            seqkit grep -p {wildcards.segment} $consensus_file | \
+              seqkit replace -p {wildcards.segment} -r "$sample {wildcards.segment}" >> \
+              {output}
+          done
+        '''
 
 rule check_replicate_consensus:
     input:
