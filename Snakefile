@@ -72,7 +72,7 @@ rule genbank_to_gtf:
     output:
         'data/reference/{segment}/metadata.gtf'
     run:
-        genbank_to_gtf(input[0], output[0])
+        genbank_to_gtf(input[0], output[0], wildcards.segment)
 
 rule full_gtf:
     input:

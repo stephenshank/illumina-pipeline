@@ -252,13 +252,13 @@ def samples_to_analyze():
         )
 
 
-def genbank_to_gtf(gbk_file, gtf_file):
+def genbank_to_gtf(gbk_file, gtf_file, segment):
     with open(gtf_file, 'w') as gtf_out:
         for record in SeqIO.parse(gbk_file, "genbank"):
             for feature in record.features:
                 if feature.type == "CDS":
                     # Extract required fields
-                    chrom = record.id
+                    chrom = segment
                     source = "GenBank"
                     feature_type = "CDS"
                     start = int(feature.location.start) + 1  # GTF uses 1-based indexing
