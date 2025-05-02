@@ -17,8 +17,15 @@ import pandas as pd
 import yaml
 
 
-with open('config.yml') as config_file:
-    config = yaml.safe_load(config_file)
+try:
+    with open('config.yml') as config_file:
+        config = yaml.safe_load(config_file)
+except FileNotFoundError:
+    sys.exit(
+        f"\nERROR: Configuration file not found!\n"
+        " Did you forget to copy the template and make your edits?\n"
+        " Please refer to our documentation for more details.\n"
+    )
 
 
 def load_reference_dictionary(virus):
