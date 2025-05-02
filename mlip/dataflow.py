@@ -238,11 +238,18 @@ def load_metadata_dictionary():
 
 def samples_to_analyze():
     md = load_metadata_dictionary()
-    with open('data/empty.txt') as f:
-        empties = [line.strip() for line in f.readlines()]
-    for empty in empties:
-        del md[empty]
-    return md.keys()
+    try:
+        with open('data/empty.txt') as f:
+            empties = [line.strip() for line in f.readlines()]
+        for empty in empties:
+            del md[empty]
+        return md.keys()
+    except FileNotFoundError:
+        sys.exit(
+            f"\nERROR: Samples to analyze not found!\n"
+            " Did you forget to run dataflow to move data into the repo?\n"
+            " Please refer to our documentation for more details.\n"
+        )
 
 
 def genbank_to_gtf(gbk_file, gtf_file):
@@ -423,6 +430,7 @@ def extract_coding_regions(input_gtf, input_references, output_json):
             accession_to_segment_key[k]: v
             for k, v in coding_regions.items()
         }, json_file, indent=2)
+
 
 def define_coding_regions(gtf_file):
     with open(gtf_file, "r") as gtf:
