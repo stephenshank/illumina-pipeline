@@ -21,6 +21,7 @@ REFERENCE = config['reference']
 reference_dictionary = load_reference_dictionary(REFERENCE)
 metadata_dictionary = load_metadata_dictionary()
 SAMPLES = samples_to_analyze()
+DUPLICATE_SAMPLES = get_duplicate_samples(metadata_dictionary)
 SEGMENTS = reference_dictionary.keys()
 NUMBER_OF_REMAPPINGS = config['number_of_remappings']
 
@@ -659,8 +660,8 @@ rule check_sample_consensus:
 
 rule all_variants:
     input:
-        tsv=expand('data/{sample}/ml.tsv', sample=SAMPLES),
-        html=expand('data/{sample}/ml.html', sample=SAMPLES)
+        tsv=expand('data/{sample}/ml.tsv', sample=DUPLICATE_SAMPLES),
+        html=expand('data/{sample}/ml.html', sample=DUPLICATE_SAMPLES)
     output: 'data/variants.tsv'
     run: merge_variant_calls(input.tsv, output[0])
 
