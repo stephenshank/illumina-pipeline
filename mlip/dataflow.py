@@ -68,7 +68,7 @@ def preprocess(id_filepath, seq_key='Seq'):
     check_duplicates(lines)
 
     sorted_seq_ids = sorted(lines, key=lambda x: x.lower())
-    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)')
+    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)', re.IGNORECASE)
     key_hash = {}
 
 
@@ -159,7 +159,7 @@ def flow(args):
         counter[sample_id] += 1
         sequencing_token = tokenize(row['SequencingId'])
 
-        token_pattern = re.compile(rf'^{sequencing_token}(?!\d)')
+        token_pattern = re.compile(rf'^{sequencing_token}s\d+l\d+')
         found_match = False
         for fastq_token in fastq_tokens:
             if token_pattern.search(fastq_token):
