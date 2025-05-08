@@ -24,7 +24,7 @@ Suppose you have several FASTQs downloaded from BaseSpace that you'd like to ana
 Get a copy of the code and set up your environment for analysis:
 
 ```
-git clone https://github.com/monclalab/illumina-pipeline MyAnalysis
+git clone https://github.com/moncla-lab/illumina-pipeline MyAnalysis
 cd MyAnalysis
 conda activate mlip
 ```
