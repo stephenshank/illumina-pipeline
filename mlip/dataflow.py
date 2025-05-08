@@ -68,7 +68,7 @@ def preprocess(id_filepath, seq_key='Seq'):
     check_duplicates(lines)
 
     sorted_seq_ids = sorted(lines, key=lambda x: x.lower())
-    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)')
+    seq_key_pattern = re.compile(rf'_{seq_key}(\d+)', re.IGNORECASE)
     key_hash = {}
 
 
@@ -159,7 +159,7 @@ def flow(args):
         counter[sample_id] += 1
         sequencing_token = tokenize(row['SequencingId'])
 
-        token_pattern = re.compile(rf'^{sequencing_token}(?!\d)')
+        token_pattern = re.compile(rf'^{sequencing_token}s\d+l\d+')
         found_match = False
         for fastq_token in fastq_tokens:
             if token_pattern.search(fastq_token):
@@ -252,13 +252,13 @@ def samples_to_analyze():
         )
 
 
-def genbank_to_gtf(gbk_file, gtf_file):
+def genbank_to_gtf(gbk_file, gtf_file, segment):
     with open(gtf_file, 'w') as gtf_out:
         for record in SeqIO.parse(gbk_file, "genbank"):
             for feature in record.features:
                 if feature.type == "CDS":
                     # Extract required fields
-                    chrom = record.id
+                    chrom = segment
                     source = "GenBank"
                     feature_type = "CDS"
                     start = int(feature.location.start) + 1  # GTF uses 1-based indexing
@@ -733,6 +733,9 @@ def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replic
 
 
 def merge_variant_calls(input, output):
+    if len(input) == 0:
+        Path(output).touch()
+        return
     dfs = []
     for fp in input:
         parts = fp.split('/')
@@ -868,6 +871,15 @@ def fill(input_alignment, output_sequence):
         description="hybrid"
     )
     SeqIO.write(record, output_sequence, 'fasta')
+
+
+def get_duplicate_samples(metadata_dictionary):
+    duplicate_samples = [
+        sample
+        for sample, metadata in metadata_dictionary.items()
+        if len(metadata) == 2
+    ]
+    return duplicate_samples
 
 
 if __name__ == '__main__':
