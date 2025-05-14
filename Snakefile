@@ -1,11 +1,11 @@
+from mlip import *
+
 import os
 import csv
 import json
 from itertools import product
 
 import pandas as pd
-
-from mlip import *
 
 
 
@@ -264,8 +264,6 @@ rule index:
     shell:
         'bowtie2-build {input} {params} > {output.stdout} 2> {output.stderr}'
 
-
-get_sample = lambda wildcards: 'reference' if wildcards.mapping_stage == 'initial' else wildcards.sample
 
 rule mapping:
     message:

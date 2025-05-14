@@ -1,4 +1,4 @@
-virus	segment_key	genbank_accession
+reference	segment_key	genbank_accession
 h5n1	ha	PQ719273.1
 h5n1	mp	PQ719276.1
 h5n1	na	PQ719275.1
