@@ -103,6 +103,12 @@ def load_reference_dictionary(reference):
     return reference_dictionary
 
 
+def load_manifest():
+    with open('data/file_manifest.json') as manifest_file:
+        manifest = json.load(manifest_file)
+    return manifest
+
+
 def extract_genes(input_gtf, output_gene_list):
     pattern = re.compile(r'gene_id\s+"([^"]+)"')
     with open(input_gtf) as input_file, open(output_gene_list, 'w') as output_file:
@@ -199,14 +205,19 @@ def fastq_is_low_coverage(filepath, min_reads=50):
 
 
 def flow(args):
+    # manifest_samples_data will store: {sample_id: {replicate_num: [exp_details_list]}}
+    manifest_samples_data = defaultdict(lambda: defaultdict(list))
+    config = load_mlip_config() 
+
     with open('data/metadata.tsv', 'r') as f:
         reader = csv.DictReader(f, delimiter='\t')
         rows = list(reader)
 
-    config = load_mlip_config()
+    data_root = Path(config['data_root_directory']).expanduser()
+    
     fastq_paths = [
         str(fastq_path)
-        for fastq_path in Path(config['data_root_directory']).expanduser().rglob('*.fastq.gz')
+        for fastq_path in data_root.rglob('*.fastq.gz')
         if is_forward_fastq_path(str(fastq_path))
     ]
     fastq_tokens = [tokenize(os.path.basename(fastq_path)) for fastq_path in fastq_paths]
@@ -218,57 +229,226 @@ def flow(args):
         }
         for token, path in zip(fastq_tokens, fastq_paths)
     }
-    counter = Counter()
-    empties = []
+    
     for row in rows:
         sample_id = row['SampleId']
-        counter[sample_id] += 1
-        sequencing_token = tokenize(row['SequencingId'])
+        sequencing_id_from_meta = row['SequencingId']
+        replicate_from_meta = row['Replicate']
 
-        token_pattern = re.compile(rf'^{sequencing_token}s\d+l\d+')
-        found_match = False
-        for fastq_token in fastq_tokens:
-            if token_pattern.search(fastq_token):
-                if fastq_hash[fastq_token]['seen'] == True:
-                    print('FATAL ERROR! Tokens clashed. Please contact Stephen.')
-                    sys.exit(1)
-                found_match = True
-                fastq_hash[fastq_token]['seen'] = True
+        if not sample_id or not sequencing_id_from_meta or not replicate_from_meta:
+            continue
 
-                directory_path = os.path.join('data', sample_id, f'sequencing-{counter[sample_id]}')
-                if not args.dry_run:
-                    os.makedirs(directory_path, exist_ok=True)
+        sequencing_token_from_meta = tokenize(sequencing_id_from_meta)
+        token_pattern = re.compile(rf'^{sequencing_token_from_meta}s\d+l\d+') 
+        
+        found_match_for_row = False
+        for fastq_file_token, file_data in fastq_hash.items():
+            if not file_data['seen'] and token_pattern.search(fastq_file_token):
+                old_forward_path = file_data['path']
+                old_reverse_path = file_data['reverse']
 
-                old_forward_path = fastq_hash[fastq_token]['path']
-                new_forward_path = os.path.join(directory_path, 'forward.fastq.gz')
-                old_reverse_path = fastq_hash[fastq_token]['reverse']
-                new_reverse_path = os.path.join(directory_path, 'reverse.fastq.gz')
-
-                # Check if fastq files are empty; if so, alert user, log sample id, and skip moving
-                if fastq_is_low_coverage(old_forward_path) or fastq_is_low_coverage(old_reverse_path):
-                    print(f"Alert: Fastq file(s) for sample {sample_id} are empty. Skipping move.")
-                    empties.append(sample_id)
+                if not Path(old_forward_path).exists() or not Path(old_reverse_path).exists():
                     continue
+                
+                is_low_cov = fastq_is_low_coverage(old_forward_path) or \
+                             fastq_is_low_coverage(old_reverse_path)
+                
+                experiment_entry = {
+                    "sequencing_id_from_metadata": sequencing_id_from_meta,
+                    "source_forward_path": str(Path(old_forward_path).resolve()),
+                    "source_reverse_path": str(Path(old_reverse_path).resolve()),
+                    "source_gzipped": True,
+                    "is_low_coverage": is_low_cov 
+                }
+                manifest_samples_data[sample_id][replicate_from_meta].append(experiment_entry)
+                
+                file_data['seen'] = True 
+                found_match_for_row = True
+                break 
+        
+    # Convert defaultdicts to dicts for cleaner JSON output
+    final_samples_data = {
+        s_id: dict(replicates) 
+        for s_id, replicates in manifest_samples_data.items()
+    }
 
-                if not args.dry_run:
-                    shutil.copy(old_forward_path, new_forward_path)
-                    shutil.copy(old_reverse_path, new_reverse_path)
+    final_manifest = {
+        "manifest_details": {
+            "manifest_mode_used": "basespace",
+            "data_root_queried": str(data_root.resolve())
+        },
+        "samples": final_samples_data
+    }
 
-                print(f"{sample_id}: sequencing experiment {counter[sample_id]}, replicate {row['Replicate']}")
-                print(f'\tForward: {old_forward_path}')
-                print(f'\tMoving to {new_forward_path}\n')
-                print(f'\tReverse: {old_reverse_path}')
-                print(f'\tMoving to {new_reverse_path}\n\n')
-        if not found_match:
-            print(f'Warning! Could not find a match for {row['SequencingId']}!')
+    if not final_samples_data: # Check if any samples had processable experiments
+        sys.stderr.write(
+            "\nERROR (SRA/Generic Mode): No FASTQ files were found or matched for any samples.\n"
+            f"       Please check 'data/metadata.tsv', 'data_root_directory' in 'config.yml' ({data_root}),\n"
+            f"       and ensure files follow the BaseSpace convention.\n\n"
+        )
+        sys.exit(1)
+ 
+    os.makedirs('data', exist_ok=True)
+    with open('data/file_manifest.json', 'w') as f_out:
+        json.dump(final_manifest, f_out, indent=2)
 
-    with open("data/empty.txt", "w") as empty_file:
-        for empty in set(empties):
-            empty_file.write(empty+ "\n")
+
+def fastq_is_low_coverage_sra_generic(filepath_str, min_reads=50):
+    line_count = 0
+    try:
+        with gzip.open(filepath_str, 'rt') as f_gz:
+            for line in f_gz:
+                line_count += 1
+                if line_count > min_reads * 4: return False
+            return (line_count // 4) < min_reads
+    except gzip.BadGzipFile: # Not a gzip file, try as plain text
+        try:
+            with open(filepath_str, 'r') as f_plain:
+                for line in f_plain:
+                    line_count += 1
+                    if line_count > min_reads * 4: return False
+                return (line_count // 4) < min_reads
+        except Exception: return True # Error reading plain, assume low
+    except FileNotFoundError: return True # File not found, assume low
+    except Exception: return True # Other gzip errors, assume low
+
+
+def sra_flow(args):
+    manifest_samples_data = defaultdict(lambda: defaultdict(list))
+    config = load_mlip_config()
+    data_root = Path(config['data_root_directory']).expanduser()
+
+    with open('data/metadata.tsv', 'r') as f:
+        reader = csv.DictReader(f, delimiter='\t')
+        rows = list(reader)
+
+    for row in rows:
+        sample_id = row['SampleId']
+        # For this mode, SequencingId from metadata IS the base filename part
+        sequencing_id_base = row['SequencingId'] 
+        replicate_from_meta = row['Replicate']
+
+        if not sample_id or not sequencing_id_base or not replicate_from_meta:
+            continue
+
+        fwd_path_to_use = None
+        rev_path_to_use = None
+        is_gzipped_source = False
+
+        # Check for gzipped pair first, then plain fastq
+        fwd_gz = data_root / f"{sequencing_id_base}_1.fastq.gz"
+        rev_gz = data_root / f"{sequencing_id_base}_2.fastq.gz"
+        fwd_plain = data_root / f"{sequencing_id_base}_1.fastq"
+        rev_plain = data_root / f"{sequencing_id_base}_2.fastq"
+
+        if fwd_gz.exists() and rev_gz.exists():
+            fwd_path_to_use = str(fwd_gz.resolve())
+            rev_path_to_use = str(rev_gz.resolve())
+            is_gzipped_source = True
+        elif fwd_plain.exists() and rev_plain.exists():
+            fwd_path_to_use = str(fwd_plain.resolve())
+            rev_path_to_use = str(rev_plain.resolve())
+            is_gzipped_source = False
+        else:
+            # print(f"SRA/Generic Mode: File pair for {sequencing_id_base} not found.")
+            continue # Skip if pair not found
+
+        is_low_cov = fastq_is_low_coverage_sra_generic(fwd_path_to_use) or \
+                     fastq_is_low_coverage_sra_generic(rev_path_to_use)
+        
+        experiment_entry = {
+            "sequencing_id_from_metadata": sequencing_id_base, # Storing the ID from metadata
+            "source_forward_path": fwd_path_to_use,
+            "source_reverse_path": rev_path_to_use,
+            "source_gzipped": is_gzipped_source,
+            "is_low_coverage": is_low_cov 
+        }
+        manifest_samples_data[sample_id][replicate_from_meta].append(experiment_entry)
+            
+    final_samples_data = {
+        s_id: dict(replicates) 
+        for s_id, replicates in manifest_samples_data.items()
+    }
+
+    final_manifest = {
+        "manifest_details": {
+            "manifest_mode_used": "sra_generic", # Indicate mode used
+            "data_root_queried": str(data_root.resolve())
+        },
+        "samples": final_samples_data
+    }
+    
+    if not final_samples_data: # Check if any samples had processable experiments
+        sys.stderr.write(
+            "\nERROR (SRA/Generic Mode): No FASTQ files were found or matched for any samples.\n"
+            f"       Please check 'data/metadata.tsv', 'data_root_directory' in 'config.yml' ({data_root}),\n"
+            f"       and ensure files follow the '{Path('{SequencingId}')}_1.fastq[.gz]' convention.\n\n"
+        )
+        sys.exit(1)
+        
+    os.makedirs('data', exist_ok=True)
+    with open('data/file_manifest.json', 'w') as f_out:
+        json.dump(final_manifest, f_out, indent=2)
+    
+    total_experiments_in_manifest = sum(len(experiments) for reps in final_samples_data.values() for experiments in reps.values())
+    print(f"SRA/Generic mode: File manifest generated at data/file_manifest.json with {total_experiments_in_manifest} total experiments for {len(final_samples_data)} samples.")
 
 
 def flow_cli(args):
-    flow(args)
+    if args.sra_mode:
+        print("Initiating SRA/Generic mode manifest generation...")
+        sra_flow(args)
+    else:
+        print("Initiating BaseSpace mode manifest generation...")
+        flow(args) # Call the renamed BaseSpace function
+
+
+def concatenate_replicates_from_manifest_py(
+    manifest_filepath,
+    sample_id,
+    replicate_num_str,
+    output_forward_fastq_path,
+    output_reverse_fastq_path
+):
+    with open(manifest_filepath, 'r') as f_manifest:
+        manifest_data = json.load(f_manifest)
+
+    sample_specific_data = manifest_data.get("samples", {}).get(sample_id, {})
+    experiments_for_replicate = sample_specific_data.get(replicate_num_str, [])
+
+    valid_experiments = [
+        exp for exp in experiments_for_replicate if not exp.get("is_low_coverage", False)
+    ]
+
+    # Ensure output directory exists (minimal check)
+    os.makedirs(os.path.dirname(output_forward_fastq_path), exist_ok=True)
+
+    if not valid_experiments:
+        Path(output_forward_fastq_path).touch()
+        Path(output_reverse_fastq_path).touch()
+        return
+
+    with open(output_forward_fastq_path, 'wb') as fwd_out_handle, \
+         open(output_reverse_fastq_path, 'wb') as rev_out_handle:
+        
+        for exp_data in valid_experiments:
+            fwd_src_path = exp_data["source_forward_path"]
+            rev_src_path = exp_data["source_reverse_path"]
+            is_gzipped = exp_data["source_gzipped"]
+            
+            if is_gzipped:
+                with gzip.open(fwd_src_path, 'rb') as f_in:
+                    shutil.copyfileobj(f_in, fwd_out_handle)
+            else:
+                with open(fwd_src_path, 'rb') as f_in:
+                    shutil.copyfileobj(f_in, fwd_out_handle)
+            
+            if is_gzipped:
+                with gzip.open(rev_src_path, 'rb') as f_in:
+                    shutil.copyfileobj(f_in, rev_out_handle)
+            else:
+                with open(rev_src_path, 'rb') as f_in:
+                    shutil.copyfileobj(f_in, rev_out_handle)
 
 
 def load_mlip_config():
@@ -396,13 +576,7 @@ def command_line_interface():
         epilog="Example: python mlip/dataflow.py flow",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    flow_parser.add_argument(
-        "-n", "--dry-run",
-        required=False,
-        action="store_true", # No value needed, just its presence
-        default=False,
-        help="Perform a 'dry run': show which files would be moved based on the metadata and config, but do not actually copy any files."
-    )
+    flow_parser.add_argument("--sra-mode", action="store_true", help="Enable SRA mode for data flowing.")
     flow_parser.set_defaults(func=flow_cli)
 
     # --- Argument Parsing ---
@@ -685,19 +859,21 @@ def load_metadata_dictionary():
 
 
 def samples_to_analyze():
-    md = load_metadata_dictionary()
-    try:
-        with open('data/empty.txt') as f:
-            empties = [line.strip() for line in f.readlines()]
-        for empty in empties:
-            del md[empty]
-        return md.keys()
-    except FileNotFoundError:
-        sys.exit(
-            f"\nERROR: Samples to analyze not found!\n"
-            " Did you forget to run dataflow to move data into the repo?\n"
-            " Please refer to our documentation for more details.\n"
-        )
+    manifest_filepath = Path("data/file_manifest.json")
+    samples_with_valid_data = set()
+
+    with open(manifest_filepath, 'r') as f:
+        manifest_data = json.load(f)
+
+    for sample_id, replicates_data in manifest_data.get("samples", {}).items():
+        for _, experiments_list in replicates_data.items():
+            for exp in experiments_list:
+                if not exp.get("is_low_coverage", True):
+                    samples_with_valid_data.add(sample_id)
+                    break 
+            if sample_id in samples_with_valid_data:
+                break 
+    return sorted(list(samples_with_valid_data))
 
 
 def genbank_to_gtf(gbk_file, gtf_file, segment):
@@ -1167,6 +1343,7 @@ def check_consensus(fasta_file, pileup_data, coverage_threshold):
 
 
 def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replicate):
+    config = load_mlip_config()
     coverage_threshold = config['consensus_minimum_coverage']
     quality_threshold = config['minimum_quality_score']
     pileup_data = parse_pileup(input_pileup, 0)
