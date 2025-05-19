@@ -110,6 +110,7 @@ import re
 import json
 from pathlib import Path
 import argparse
+import subprocess
 from collections import defaultdict
 from collections import Counter
 
@@ -438,7 +439,24 @@ def sra_flow(args):
     )
 
 
+def _prepare_reference_from_zip_if_needed(config):
+    ref = Path(config.get("reference", "")).expanduser()
+    marker = Path("data/reference/.unzipped")
+
+    if not ref.suffix == ".zip":
+        sys.exit(f"ERROR: reference is not a zip file: {ref}")
+        return
+    if not ref.is_file():
+        sys.exit(f"ERROR: Reference ZIP not found: {ref}")
+
+    shutil.rmtree("data/reference", ignore_errors=True)
+    subprocess.run(["unzip", "-o", str(ref), "-d", "."], check=True)
+    marker.touch()
+
+
 def flow_cli(args):
+    config = load_mlip_config()
+    _prepare_reference_from_zip_if_needed(config)
     if args.sra_mode:
         print("Initiating SRA/Generic mode manifest generation...")
         sra_flow(args)
@@ -710,7 +728,6 @@ def report_pipeline_status():
     """
     overall_status_ok = True
     config = None
-    metadata_looks_populated = False  # Flag to track if metadata seems ready for 'flow'
 
     # --- 1. Configuration File (`config.yml`) ---
     print_section_header("1. Configuration (`config.yml`)")
@@ -772,179 +789,91 @@ def report_pipeline_status():
         print_status_item(f"Unexpected error processing `config.yml`: {e}", "error")
         overall_status_ok = False
 
-    # --- 2. Reference Setup (relies on config) ---
+    # --- 2. Reference Genome Setup ---
     print_section_header("2. Reference Genome Setup")
     if config and "reference" in config:
-        reference_name_from_config = config["reference"]
+        reference_config_val = str(config["reference"])
+        data_ref_path = Path("data/reference")
+        unzipped_marker_path = (
+            data_ref_path / ".unzipped"
+        )  # Matches marker from flow step
 
-        # --- Special check for 'custom' reference ---
-        if reference_name_from_config == "custom":
-            print_status_item("Custom reference selected.", "info")
-            custom_ref_base_path = Path("data/reference")  # Expected base directory
-            custom_check_passed = (
-                True  # Assume success for this specific check initially
+        is_zip_ref = reference_config_val.endswith(".zip")
+
+        if is_zip_ref:
+            configured_zip_path = Path(reference_config_val).expanduser()
+            print_status_item(
+                f"Reference mode: ZIP file ('{configured_zip_path}').", "info"
             )
 
-            if not custom_ref_base_path.is_dir():
+            if not configured_zip_path.is_file():
                 print_status_item(
-                    f"Base directory for custom reference ('{custom_ref_base_path}') not found.",
+                    f"Configured reference ZIP not found: '{configured_zip_path}'.",
                     "error",
                 )
-                print_guidance(
-                    "Create this directory and place your custom reference segment subdirectories inside it."
+                overall_status_ok = False
+            elif not unzipped_marker_path.exists():
+                print_status_item(
+                    f"Reference ZIP not yet processed by a 'flow' command.", "warning"
                 )
                 print_guidance(
-                    "This can be done manually (requires time and care), or by using unzipped one of our curated ZIP files."
+                    f"Run 'python mlip/dataflow.py flow' to prepare from '{configured_zip_path}'."
                 )
-                custom_check_passed = False
-                overall_status_ok = False  # This is a critical failure for custom refs
-            else:
-                # Find segment subdirectories
-                segment_dirs = [d for d in custom_ref_base_path.iterdir() if d.is_dir()]
-
-                if not segment_dirs:
-                    print_status_item(
-                        f"No segment subdirectories found within '{custom_ref_base_path}'.",
-                        "error",
-                    )
-                    print_guidance(
-                        "Create subdirectories for each segment (e.g., 'PB2', 'PB1', 'PA', etc.)."
-                    )
-                    print_guidance(
-                        "Each needs 'sequence.fasta' and 'metadata.gb' files inside."
-                    )
-                    custom_check_passed = False
-                    overall_status_ok = False
-                else:
-                    segment_names = sorted(
-                        [d.name for d in segment_dirs]
-                    )  # Sort for consistent order
-                    print_status_item(
-                        f"Found custom segment directories: {', '.join(segment_names)}",
-                        "info",
-                    )
-
-                    # Check required files within each segment directory
-                    missing_files_report = []
-                    for seg_dir in segment_dirs:
-                        segment_name = seg_dir.name
-                        fasta_path = seg_dir / "sequence.fasta"
-                        genbank_path = seg_dir / "metadata.gb"  # Using .gb as requested
-
-                        if not fasta_path.exists():
-                            missing_files_report.append(
-                                f"  - Segment '{segment_name}': Missing '{fasta_path.name}'"
-                            )
-                            custom_check_passed = False
-                        if not genbank_path.exists():
-                            missing_files_report.append(
-                                f"  - Segment '{segment_name}': Missing '{genbank_path.name}'"
-                            )  # Check for .gb
-                            custom_check_passed = False
-
-                    if not custom_check_passed:
+            else:  # Marker exists
+                print_status_item(
+                    f"Reference ZIP appears processed by 'flow'.", "success"
+                )
+                if data_ref_path.is_dir():
+                    segment_dirs = [
+                        d.name
+                        for d in data_ref_path.iterdir()
+                        if d.is_dir() and not d.name.startswith(".")
+                    ]
+                    if not segment_dirs:
                         print_status_item(
-                            f"Missing required files within custom reference directories:",
-                            "error",
+                            f"No segment subdirs in '{data_ref_path}' after 'flow' processing.",
+                            "warning",
                         )
-                        # Print the collected missing file details
-                        for report_line in missing_files_report:
-                            print(report_line)
-                        print_guidance(
-                            f"Ensure each segment directory in '{custom_ref_base_path}' contains both 'sequence.fasta' and 'metadata.gb'."
-                        )
-                        overall_status_ok = False  # Critical failure if files missing
                     else:
                         print_status_item(
-                            "Required files ('sequence.fasta', 'metadata.gb') found for all detected custom segments.",
-                            "success",
+                            f"Found segment dirs from processed ZIP: {', '.join(segment_dirs)}.",
+                            "info",
                         )
+                else:  # Should not happen if marker exists and flow worked
+                    print_status_item(
+                        f"Directory '{data_ref_path}' missing despite unzipped marker.",
+                        "error",
+                    )
+                    overall_status_ok = False
 
-        # --- Handle non-custom references ---
-        elif (
-            reference_name_from_config == "h5n1"
-        ):  # Keep h5n1 bell check separate if desired
+        else:  # Named reference from references.tsv
             print_status_item(
-                f"You've selected '{reference_name_from_config}' as your reference.",
+                f"Reference mode: Named ('{reference_config_val}' from 'references.tsv').",
                 "info",
             )
-            print_guidance("This uses a default H5N1 reference from GenBank.")
-            print_guidance(
-                "For other GenBank references or custom setups, see documentation:"
-            )
-            print_guidance("[link_to_your_documentation_on_references]")
-            # Still attempt to load via dictionary to validate it's configured in references.tsv
             try:
-                ref_details = load_reference_dictionary(reference_name_from_config)
+                ref_details = load_reference_dictionary(reference_config_val)
                 if not ref_details:
                     print_status_item(
-                        f"Definition for reference '{reference_name_from_config}' not found or invalid in 'references.tsv'.",
+                        f"Named reference '{reference_config_val}' not found in 'references.tsv'.",
                         "error",
                     )
                     overall_status_ok = False
                 else:
                     print_status_item(
-                        f"Reference '{reference_name_from_config}' appears configured based on 'references.tsv'.",
+                        f"Named ref '{reference_config_val}' configured. Segments: {', '.join(sorted(ref_details.keys()))}.",
                         "success",
                     )
             except FileNotFoundError:
-                print_status_item(
-                    f"'references.tsv' not found. Cannot verify reference '{reference_name_from_config}'.",
-                    "error",
-                )
+                print_status_item("'references.tsv' not found.", "error")
                 overall_status_ok = False
             except Exception as e:
-                print_status_item(
-                    f"Unexpected error loading reference details for '{reference_name_from_config}': {e}",
-                    "error",
-                )
+                print_status_item(f"Error loading from 'references.tsv': {e}", "error")
                 overall_status_ok = False
-
-        else:  # Default case for other named references from references.tsv
-            try:
-                ref_details = load_reference_dictionary(reference_name_from_config)
-                if not ref_details:
-                    print_status_item(
-                        f"Definition for reference '{reference_name_from_config}' (from `config.yml`) not found or invalid in 'references.tsv'.",
-                        "error",
-                    )
-                    print_guidance(
-                        f"Ensure '{reference_name_from_config}' is a valid entry in the 'virus' column of `references.tsv`."
-                    )
-                    overall_status_ok = False
-                else:
-                    print_status_item(
-                        f"Reference '{reference_name_from_config}' appears configured based on 'references.tsv'.",
-                        "success",
-                    )
-            except FileNotFoundError:
-                print_status_item(
-                    f"'references.tsv' not found. Cannot verify reference '{reference_name_from_config}'.",
-                    "error",
-                )
-                print_guidance(
-                    "Please ensure 'references.tsv' exists in the current directory."
-                )
-                overall_status_ok = False
-            except Exception as e:
-                print_status_item(
-                    f"Unexpected error loading reference details for '{reference_name_from_config}': {e}",
-                    "error",
-                )
-                overall_status_ok = False
-
-    # --- Handle cases where config is missing or 'reference' key is missing ---
     elif not config:
-        print_status_item(
-            "Skipping reference check because `config.yml` is not loaded.", "info"
-        )
-        # Cannot proceed with reference-dependent steps, but maybe allow metadata check?
-        # Depending on desired strictness, you might set overall_status_ok = False here too.
+        print_status_item("Skipping reference check: `config.yml` not loaded.", "info")
     elif "reference" not in config:
-        print_status_item(
-            "`reference` key missing in `config.yml`, cannot check reference setup.",
-            "error",
-        )
+        print_status_item("`reference` key missing in `config.yml`.", "error")
         overall_status_ok = False
 
     # --- 3. Metadata File (`data/metadata.tsv`) ---

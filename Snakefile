@@ -1,12 +1,21 @@
 from mlip import *
 
 import os
+import sys
 import csv
 import json
 from itertools import product
 
 import pandas as pd
 
+
+if not os.path.exists("data/file_manifest.json"):
+    print("ERROR: 'data/file_manifest.json' not found.")
+    print("Please generate it by running:")
+    print("  python mlip/dataflow.py flow")
+    print("Please also run the checker to ensure you are properly configured:")
+    print("  python mlip/dataflow.py flow")
+    sys.exit(1)
 
 
 wildcard_constraints:
@@ -52,24 +61,34 @@ rule fetch_reference_data:
                 > {output.fasta}
         '''
 
-rule build_genbank_reference:
+def get_reference_input(wildcards):
+    if config["reference"].endswith(".zip"):
+        return "data/reference/.unzipped"
+    else:
+        return expand("data/reference/{segment}/sequence.fasta", segment=SEGMENTS)
+
+rule build_full_reference:
     message:
         'Concatenating reference data into single FASTA...'
     input:
-        expand(
-            'data/reference/{segment}/sequence.fasta',
-            segment=SEGMENTS
-        )
+        get_reference_input
     output:
         'data/reference/sequences.fasta',
     shell:
         'cat {input} > {output}'
 
+
+def get_genbank_input(wildcards):
+    if config["reference"].endswith(".zip"):
+        return f"data/reference/{wildcards.segment}/metadata.gb"
+    else:
+        return rules.fetch_reference_data.output.genbank
+
+
 rule genbank_to_gtf:
     message:
         'Converting Genbank data to GTF...'
-    input:
-        rules.fetch_reference_data.output.genbank
+    input: get_genbank_input
     output:
         'data/reference/{segment}/metadata.gtf'
     run:
@@ -269,7 +288,7 @@ rule mapping:
     params:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/reference/index'
     output:
-        sam='data/{sample}/replicate-{replicate}/{mapping_stage}/mapped.sam',
+        sam=temp('data/{sample}/replicate-{replicate}/{mapping_stage}/mapped.sam'),
         stdout='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stdout.txt',
         stderr='data/{sample}/replicate-{replicate}/{mapping_stage}/bowtie2-stderr.txt'
     priority: 2
@@ -390,6 +409,7 @@ rule call_segment_consensus:
     priority: 5
     shell:
         '''
+        (
             seqkit grep -p {wildcards.segment} {input.reference} > {output.reference}
             samtools faidx {output.reference}
             if [ ! -s {output.reference} ]; then
@@ -409,6 +429,7 @@ rule call_segment_consensus:
             cat {output.fasta} >> {output.unaligned}
             samtools consensus --mode simple -d {params.consensus_minimum_coverage} --call-fract 0 {output.bam} > {output.samtools}
             mafft --preservecase {output.unaligned} > {output.aligned}
+        ) || true
         '''
 
 rule full_consensus:
@@ -486,7 +507,7 @@ rule call_sample_proteins:
 rule annotate_varscan:
     input:
         coding_regions=rules.coding_regions.output[0],
-        reference=rules.build_genbank_reference.output[0],
+        reference=rules.build_full_reference.output[0],
         varscan=rules.call_variants.output.vcf
     output:
         'data/{sample}/replicate-{replicate}/{mapping_stage}/varscan-annotated.tsv'
@@ -606,7 +627,8 @@ rule all_variants:
         tsv=expand('data/{sample}/ml.tsv', sample=DUPLICATE_SAMPLES),
         html=expand('data/{sample}/ml.html', sample=DUPLICATE_SAMPLES)
     output: 'data/variants.tsv'
-    run: merge_variant_calls(input.tsv, output[0])
+    run:
+        merge_variant_calls(input.tsv, output[0])
 
 #rule full_consensus_summary:
 #    input:
