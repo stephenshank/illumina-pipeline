@@ -1,15 +1,22 @@
 # Moncla Lab Illumina Pipeline Documentation
 
 This document covers a more comprehensive overview of this pipeline.
+## Table of Contents
+
+1. [**Starting from reads**](#1-≈) - Obtaining raw read data and associated metadata
+2. [**Configuration**](#2-configuration) - How to configure the pipeline.
+3. [**Tools utilized**](#3-tools-utilized) - Bioinformatics tools used in this pipeline with a brief description and rationale.
+4. [**User stories**](#4-user-stories) - Various use cases for this pipeline and how to execute them, with examples.
+5. [**Output produced**](#5-output-produced) - The various files that are produced by this pipeline.
 
 ## Introduction
 
 This pipeline aspires to be of great utility for nearly all Illumina PCR experiments performed by the Moncla lab, by doing the following things in a scientifically accurate manner:
 
 - **Easily install and configure** for various usages
-- **Easily pull data** out of BaseSpace and organize it for ingestion by the pipeline
+- **Easily pull data** out of BaseSpace or SRA and organize it for ingestion by the pipeline
 - For **each sequencing experiment**, yield information for preliminary analyses such as coverage calculations
-- For each **biological sample**, yield information for downstream analyses such as consensus genomes and annotated variant calls
+- For each **biological sample**, yield information for downstream analyses such as consensus genomes, annotated variant calls, and translated proteins
 - For some **biological samples**, yield information for those that were so thoroughly sequenced such that analyses of **technical replicates** can be performed
 - Perform the above analyses via **batch processing**, allowing all jobs to be queued as easily as an individual job
 
@@ -17,21 +24,13 @@ The typical wet lab set up looks something like the following, producing massive
 
 ![PNG Image](documentation/illustration.png)
 
-It is useful to establish a common vocabulary to ensure that people from disparate disciplines are on the same page. Begin at the absolute atomic unit: we gather **biological samples** to perform **sequencing experiments**. This generates read data. Note that in the above, there’s often many sequencing experiments performed on an individual sample, but there is always a one-to-one correspondence between a sequencing experiment and the corresponding FASTQ dataset that is generated.
+It is useful to establish a common vocabulary. Beginning at the absolute atomic unit, we gather **biological samples** to perform **sequencing experiments**. This generates **datasets**. Note that in the above, there’s often many sequencing experiments performed on an individual sample, but there is always a one-to-one correspondence between a sequencing experiment and the corresponding FASTQ dataset that is generated.
 
-Read data is generated in this lab by Illumina instruments and finds its way onto their BaseSpace web application. It needs to be pulled down locally to be analyzed. It comes in an unwieldy format that needs to be tidied up for ingestion by this pipeline. Some context needs to be provided to the pipeline by the technician so that it understands what the various FASTQs represent biologically, which is performed by population of a sequencing metadata spreadsheet.
+Read data is generated in this lab by Illumina instruments and finds its way into the BaseSpace web application. It needs to be pulled down locally to be analyzed. It comes in an unwieldy format that needs to be tidied up for ingestion by this pipeline. Some context needs to be provided to the pipeline by a technician so that it understands what the various FASTQs represent biologically, which is performed by population of a sequencing metadata spreadsheet. The pipeline takes it from there.
 
 ![PNG Image](documentation/analyzing-a-sample.png)
 
 This document describes the process of extracting different kinds of relevant biological information in detail.
-
-1. [**Starting from reads**](#1-starting-from-reads) - Going from data fresh off of Illumina sequences to biological information
-2. [**Configuration**](#2-configuration) - How the pipeline is configured.
-3. [**Tools utilized**](#3-tools-utilized) - Bioinformatics tools used in this pipeline with a brief description and rationale.
-4. [**User stories**](#4-user-stories) - Various use cases for this pipeline and how to execute them.
-5. [**Output produced**](#5-output-produced) - The various files that are produced by this pipeline.
-
-## Table of Contents
 
 ## 1. Starting from reads
 
@@ -53,7 +52,7 @@ Go back up to the file icon and select dataset from the following dropdown...
 
 ![PNG Image](documentation/download-menu-dropdown.png)
 
-You'll be prompted with the files that you're going to download. You will need Illumina Basespace downloader to be installed on your local machine if you haven't already. Also, one quirk I've found is that this program needs to be open for me. The web application can start a download in the program if it's already open, but if it's not, it can't open it for you.
+You'll be prompted with the files that you're going to download. You will need Illumina Basespace downloader to be installed on your local machine if you haven't already. Also, one quirk I've found is that this program needs to be open for me. The web application can start a download in the program if it's already open, but if it's not, it doesn't open it for you.
 
 Click download to proceed...
 
@@ -95,17 +94,28 @@ You can now refer back to the [README](https://github.com/moncla-lab/illumina-pi
 
 ## 2. Configuration
 
-We use YAML (a practice recommended by Snakemake) to configure both tools and rules. Configurations that are specific to tools will begin with the `tool_` prefix, whereas configurations that are specific to rules will begin with the `rule_` prefix. See `config.yml` at the root of the repository, which contains our recommended default parameters. Since the same tool can be used across many rules, we generally start by associating configurable parameters to a **tool** that will occur across all rules it is used in. There are of course instances (such as minimum coverage in consensus vs. variant calling) where we'll wish these to be more **rule** specific. This is the rationale behind using the prefixes, so that understanding this design principle will hopefully allow a user to understand exactly what is taking place after a cursory glance at the configuration file. You may certainly wish to customize these depending on the nuances of the analysis that you are trying to perform.
+We use YAML (a practice recommended by Snakemake) to configure both tools and rules. See `config.yml.template` at the root of the repository, which contains our recommended default parameters. 
 
 ### Description of individual configuration parameters
 
-- `reference` - Determines what is used as the reference.  Works with multi-segmented viruses like influenza. See `references.tsv` for the exact accessions that are use, as well as the `fetch_reference_data` rule.
+- **`reference`** - Determines what is used as the reference.  Works with multi-segmented viruses like influenza. See `references.tsv` for the exact accessions that are use, as well as the `fetch_reference_data` rule.
 
-- `data_root_directory` - Where the data from BaseSpace has been exported to (refer back to [starting from reads](#1-starting-from-reads) if necessary). This pipeline has functionality (in `mlip.dataflow.situate_basespace_data`) to seamlessly move data out of the unwieldy format provided by default into a much cleaner format in this pipeline for ingestion.
+- **`data_root_directory`** - Where the data from BaseSpace has been exported to (refer back to [starting from reads](#1-starting-from-reads) if necessary). This pipeline has functionality (in `mlip.dataflow.situate_basespace_data`) to seamlessly move data out of the unwieldy format provided by default into a much cleaner format in this pipeline for ingestion.
+
+-   **`number_of_remappings: 2`**: How many times to re-align reads (e.g., to a refined reference). More remappings can eliminate some computational artifacts in the final processed data, but at the expense of more computational running time.
+-   **`use_vapor: false`**: Whether to use the "VAPOR" tool for choosing sample-specific references.
+-   **`trimming_minimum_length: 50`**: Discards reads that become shorter than this length (in base pairs) after all trimming steps. This removes uninformative short fragments.
+-   **`trimming_window_size: 5`**: Sets the length of the sliding window used to assess average read quality. If average quality in the window drops below minimum_quality_score, the read is trimmed.
+-   **`minimum_quality_score: 30`**: For Trimmomatic, it's the average quality threshold for the sliding window trimmer. For VarScan, it's the minimum average base quality supporting a variant call.
+-   **`consensus_minimum_coverage: 10`**: (iVar & Samtools) The minimum number of reads required to cover a position to call a base (other than 'N') in the consensus sequence. Ensures calls are based on sufficient data.
+-   **`consensus_minimum_frequency: .5`**: The minimum frequency an allele must have to be called in the consensus by iVar. A value like 0.5 aims to call the majority base.
+-   **`variants_minimum_coverage: 100`**: The minimum read depth required at a position to attempt variant calling. This ensures variants are called from well-covered regions.
+-   **`variants_minimum_frequency: .01`**: The minimum allele frequency a variant must reach to be reported by variant calling. This filters out very low-frequency potential errors
+-   **`strand_filter: 1`**: Enable a filter that checks if variants are supported by reads from both DNA strands (helps remove artifacts). Ignore variants with greater than 90% support on only one strand.
 
 ## 3. Tools utilized
 
-We use a wide variety of tools. Below will walk through each step of the pipeline to produce coverage, assemblies, and variants. The following sentence gives an overview with links to documentation, which we hope curious users will consult. This pipeline utilizes [Snakemake](https://snakemake.readthedocs.io/en/stable/), [Bioconda](https://bioconda.github.io/), [BioPython](https://biopython.org/), [Pandas](https://pandas.pydata.org/), [Genbank records](https://www.ncbi.nlm.nih.gov/genbank/samplerecord/), [GTF format](https://genome.ucsc.edu/FAQ/FAQformat.html#format4), [Trimmomatic](https://academic.oup.com/bioinformatics/article/30/15/2114/2390096), [Bowtie2](https://www.nature.com/articles/nmeth.1923), [SAMtools](https://academic.oup.com/bioinformatics/article/25/16/2078/204688), [VarScan](https://genome.cshlp.org/content/22/3/568.short), [BEDTools](https://academic.oup.com/bioinformatics/article/26/6/841/244688), [SeqKit](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0163962), [MultiQC](https://academic.oup.com/bioinformatics/article/32/19/3047/2196507), [NCBI E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25501/), and [Bash](https://www.gnu.org/software/bash/).
+We use a wide variety of tools. Below goes over each step of the pipeline. This pipeline utilizes [Snakemake](https://snakemake.readthedocs.io/en/stable/), [Bioconda](https://bioconda.github.io/), [BioPython](https://biopython.org/), [Pandas](https://pandas.pydata.org/), [Genbank records](https://www.ncbi.nlm.nih.gov/genbank/samplerecord/), [GTF format](https://genome.ucsc.edu/FAQ/FAQformat.html#format4), [Trimmomatic](https://academic.oup.com/bioinformatics/article/30/15/2114/2390096), [Bowtie2](https://www.nature.com/articles/nmeth.1923), [SAMtools](https://academic.oup.com/bioinformatics/article/25/16/2078/204688), [VarScan](https://genome.cshlp.org/content/22/3/568.short), [BEDTools](https://academic.oup.com/bioinformatics/article/26/6/841/244688), [SeqKit](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0163962), [MultiQC](https://academic.oup.com/bioinformatics/article/32/19/3047/2196507), [NCBI E-utilities](https://www.ncbi.nlm.nih.gov/books/NBK25501/), and [Bash](https://www.gnu.org/software/bash/). We hope curious users will consult the documentation of the tools and libraries used herein to aid in understanding.
 
 ### `fetch_reference_data`
 
@@ -119,7 +129,7 @@ Fetches the reference sequence and metadata for a specific viral genome segment 
   - `genbank_accession`: retrieved from `reference_dictionary` based on the segment name.
 
 - **Resources**:
-  - `ncbi_fetches=1`: indicates a single remote fetch operation.
+  - `ncbi_fetches=1`: indicates a single remote fetch operation... your request can get blocked if you make too many requests at once.
 
 - **Commands**:
   - `efetch`: downloads records from NCBI's `nuccore` database.
@@ -130,7 +140,7 @@ Fetches the reference sequence and metadata for a specific viral genome segment 
 
 Use this rule to seed the pipeline with consistent reference data per segment.
 
-### `build_genbank_reference`
+### `build_full_reference`
 
 Concatenates all segment-level FASTA files into a single reference FASTA.
 
@@ -193,21 +203,27 @@ Extracts coding region coordinates from the full GTF and maps them to segment na
 
 Use this rule to provide structured, programmatic access to coding region annotations by segment.
 
-### `concatenate_experiments_to_replicates`
+Apologies for the over-correction! You're right, let's stick to the original brevity and format, just updated for the Python implementation.
+
+### `concatenate_replicates_from_manifest`
 
 Merges all sequencing experiments for a given sample replicate into single forward and reverse FASTQ files.
 
-- **Input**:
-  - Lists of `forward.fastq.gz` and `reverse.fastq.gz` files, retrieved via custom functions using `metadata_dictionary`.
+-   **Input (via `data/file_manifest.json` and wildcards):**
+    -   Paths to source `forward.fastq.gz` (or `.fastq`) and `reverse.fastq.gz` (or `.fastq`) files for experiments belonging to the specified sample and replicate.
+    -   Information on whether source files are gzipped and if they are low-coverage.
 
-- **Output**:
-  - Combined `forward.fastq.gz` and `reverse.fastq.gz` per sample replicate.
+-   **Output:**
+    -   Combined `forward.fastq` (uncompressed) per sample replicate.
+    -   Combined `reverse.fastq` (uncompressed) per sample replicate.
 
-- **Commands**:
-  - `gzip -dc`: decompresses input files.
-  - Piped into `gzip` to recompress the concatenated stream.
+-   **Process (Python function `concatenate_replicates_from_manifest_py`):**
+    -   Reads experiment details from `data/file_manifest.json`.
+    -   Excludes experiments marked as low-coverage.
+    -   If source files are gzipped, they are decompressed in Python during reading.
+    -   Contents are appended sequentially to the output FASTQ files.
 
-Use this rule to unify multiple sequencing runs into a single pair of FASTQ files per replicate.
+Use this rule to unify multiple sequencing runs (excluding low-coverage ones) into a single pair of FASTQ files per replicate for downstream processing.
 
 ### `trimmomatic`
 
@@ -282,14 +298,23 @@ Sorted BAM files are required for indexing, variant calling, and coverage analys
   - `mapped.bam`: raw BAM conversion.
   - `sorted.bam`: position-sorted BAM.
   - `sorted.bam.bai`: index for rapid access.
-  - `stats.txt`, `flagstat.txt`, `depth.txt`: quality and coverage metrics.
+  - `samtools.pileup`: pileup file of bases and qualities at a particular position
   - `samtools-stdout.txt`, `samtools-stderr.txt`: logs.
 
 - **Command**:
   - `samtools view`: converts SAM → BAM.
   - `samtools sort`: sorts BAM by coordinate.
   - `samtools index`: creates an index for random access.
-  - Other `samtools` subcommands generate summary statistics.
+  - `samtools mpileup`: create pileup
+
+Of particular note are the flags passed to the pileup command. These are aligned with what is suggested by the iVar tool.
+
+**`-a`**: Output all positions, including zero-coverage sites.
+**`-A`**: Include anomalous read pairs (don't skip them).
+**`-d 0`**: Set maximum read depth to effectively unlimited (no downsampling).
+**`-B`**: Disable BAQ (Base Alignment Quality) computation; use raw base qualities.
+**`-Q 0`**: Minimum base quality threshold set to 0 (include all bases regardless of quality).
+**`-f {input.reference}`**: Specifies the input reference FASTA file.
 
 ### `call_variants`
 
@@ -359,16 +384,7 @@ Aggregates coverage into meaningful buckets, e.g.
 
 Calls consensus sequences for a specific genome segment using multiple strategies.
 
-This rule uses `samtools mpileup`, `ivar`, and `samtools consensus` to build segment-level consensus sequences.
-
-- **`samtools mpileup`**  
-  Generates a per-base pileup from aligned reads.  
-  - `-a`: include all positions, even if no reads are present.  
-  - `-A`: disable read pairing constraints.  
-  - `-B`: disable BAQ computation (avoids adjusting quality scores).  
-  - `-Q 0`: include all bases regardless of base quality.  
-  - `-d 0`: no depth cap.  
-  Used as input to `ivar` for base-by-base consensus calls.
+This rule uses `samtools mpileup`, `ivar`, and `samtools consensus` to build segment-level consensus sequences. It also uses a little bit of bash to ensure appropriate headers.
 
 - **`ivar consensus`**  
   Builds a consensus FASTA from the pileup.  
@@ -404,9 +420,8 @@ Creates a hybrid reference by filling gaps (`-`, `N`) in the consensus with the 
   - `filler.fasta`: gap-filled reference for the next remapping step.
 
 - **Function**: `fill(...)`
-  - For each aligned base:
-    - Uses the consensus base if it's valid.
-    - Falls back to the original base otherwise.
+  - Uses the consensus base if it's valid.
+  - Falls back to the original base otherwise.
   - Ensures continuity to avoid alignment dropouts in low-coverage regions.
 
 ### `call_sample_consensus`
@@ -421,10 +436,9 @@ Merges consensus FASTAs from each replicate to produce a sample-level consensus.
 
 - **Function**: `call_sample_consensus(...)`
   - If only one replicate exists, it's copied directly.
-  - For two replicates:
-    - Aligns records by ID and compares bases positionally.
-    - Chooses matching bases, prefers unambiguous bases over ambiguous ones, and resolves conflicts with `N`.
-    - Warns if records are missing or empty.
+  - For two replicates, compares bases positionally.
+  - Chooses matching bases, prefers unambiguous bases over ambiguous ones, and resolves conflicts with `N`.
+  - Warns if records are missing or empty.
 
 This ensures a unified consensus per sample, balancing quality across replicates while masking disagreement.
 
@@ -440,10 +454,10 @@ Translates CDS regions from the sample consensus genome into protein sequences.
   - One translated protein FASTA per gene in `data/{sample}/protein/`.
 
 - **Function**: `translate_consensus_genes(...)`
-  - For each CDS in the GenBank:
-    - Extracts the corresponding region from the consensus.
-    - Translates it using the specified codon table.
-    - Writes protein FASTAs named by gene.
+  - Looks at each CDS in the GenBank file.
+  - Extracts the corresponding region from the consensus.
+  - Translates it using the specified codon table.
+  - Writes protein FASTAs named by gene.
 
 Generates annotated protein sequences for downstream functional analysis or quality checks.
 
@@ -494,18 +508,6 @@ Merges coverage summaries from all final remapping replicates into a single file
 #### `full_genome`
 Extracts a specific segment from all sample consensus FASTAs and concatenates into one.  
 **Output**: `data/{segment}.fasta`
-
-#### `check_replicate_consensus`
-Compares segment-level consensus to pileup to verify base agreement.  
-**Output**: `consensus-report.tsv` per segment/replicate.
-
-#### `check_sample_consensus`
-Stacks all replicate-level consensus reports for a sample.  
-**Output**: `data/{sample}/consensus-report.tsv`
-
-#### `full_consensus_summary`
-Stacks all sample-level consensus reports.  
-**Output**: `data/consensus-report.tsv`
 
 #### `all_variants`
 Combines sample-level merged variant calls into a single file.  
@@ -559,6 +561,8 @@ Users of this pipeline may find themselves faced with the following challenges, 
 - “I did a negative control. I just sampled some of my host, but it wasn’t infected. I don’t really think I need two replicates here, because I’m not after a comprehensive within-host analysis. I’d just like to know what in the background (if anything) is getting amplified so I can take that into consideration when I analyze the rest of my samples. I only did one sequencing experiment for this one.”
 - “I’m trying something completely new. I’m sequencing enough for three replicates. This is super interesting, because it gives me more statistical power to discern rare intrahost variants from sequencing artifacts. Three’s probably not enough, but it’s certainly worth a try. I did three sequencing experiments because my protocol worked great.”
 
+This pipeline tries to do all of this and more, and users are encouraged to check out the [usage examples](./examples).
+
 ## 5. Output produced
 
 ### Pipeline Output Summary (`data/` directory)
@@ -597,7 +601,6 @@ This directory contains all outputs for a given sample ID, including raw data, p
   - `initial/`, `remapping-1/`, `remapping-2/` — Results of iterative reference-guided mapping and consensus refinement.
   - Includes BAM files, depth/coverage stats, and mapping logs.
 
-
 - **Variant Calling** (in `remapping-2/`):
   - `varscan.vcf`, `varscan-annotated.tsv`: called and annotated SNPs.
   - `coverage-report.tsv`: final per-replicate coverage summary.
@@ -611,10 +614,10 @@ This layout supports both early triage (coverage, consensus presence) and detail
 
 Within each replicate and remapping stage, segment-level results are organized under:
 
-data/{sample}/replicate-{rep}/remapping-{n}/segments/{segment}/
+`data/{sample}/replicate-{rep}/remapping-{n}/segments/{segment}/`
 
 For example:
-data/bv_w1/replicate-1/remapping-2/segments/ha/
+`data/bv_w1/replicate-1/remapping-2/segments/ha/`
 
 Each `{segment}/` directory contains all relevant files for that segment during a specific remapping pass:
 
@@ -626,7 +629,6 @@ Each `{segment}/` directory contains all relevant files for that segment during 
 - **Read Support and Coverage**
   - `segment.bam`, `segment.bam.bai` — Reads aligned to this segment.
   - `segment.pileup` — Input to iVar/variant calling.
-  - `pb_counts.tsv`, `pb_counts_0.tsv` — Per-base depth summaries (with and without quality filtering).
 
 - **Reference and Alignment Context**
   - `reference.fasta`, `reference.fasta.fai` — The reference used for mapping this segment.
@@ -634,8 +636,4 @@ Each `{segment}/` directory contains all relevant files for that segment during 
   - `aligned.fasta` — MSA of consensus against original reference (used for filling gaps).
   - `filler.fasta` — Hybrid reference used for remapping only (not for output).
 
-- **QC**
-  - `ivar.qual.txt` — Optional base-level quality scores from iVar.
-  - `consensus-report.tsv` — Per-segment summary comparing consensus and pileup.
-
-To investigate a specific segment’s quality or sequence, navigate directly to its path and inspect `consensus.fasta`, `pb_counts.tsv`, or `segment.bam`.
+To investigate a specific segment’s quality or sequence, navigate directly to its path and inspect `consensus.fasta`, or `segment.bam`.
