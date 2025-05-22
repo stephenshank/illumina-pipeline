@@ -316,9 +316,10 @@ def flow(args):
 
     if not final_samples_data:  # Check if any samples had processable experiments
         sys.stderr.write(
-            "\nERROR (SRA/Generic Mode): No FASTQ files were found or matched for any samples.\n"
+            "\nERROR: No FASTQ files were found or matched for any samples.\n"
             f"       Please check 'data/metadata.tsv', 'data_root_directory' in 'config.yml' ({data_root}),\n"
             f"       and ensure files follow the BaseSpace convention.\n\n"
+            f"       Also, you are in default mode... did you mean to run in SRA mode?"
         )
         sys.exit(1)
 
@@ -419,7 +420,7 @@ def sra_flow(args):
 
     if not final_samples_data:  # Check if any samples had processable experiments
         sys.stderr.write(
-            "\nERROR (SRA/Generic Mode): No FASTQ files were found or matched for any samples.\n"
+            "\nERROR: No FASTQ files were found or matched for any samples.\n"
             f"       Please check 'data/metadata.tsv', 'data_root_directory' in 'config.yml' ({data_root}),\n"
             f"       and ensure files follow the '{Path('{SequencingId}')}_1.fastq[.gz]' convention.\n\n"
         )
@@ -444,7 +445,7 @@ def _prepare_reference_from_zip_if_needed(config):
     marker = Path("data/reference/.unzipped")
 
     if not ref.suffix == ".zip":
-        sys.exit(f"ERROR: reference is not a zip file: {ref}")
+        print("Reference will be downloaded from Genbank")
         return
     if not ref.is_file():
         sys.exit(f"ERROR: Reference ZIP not found: {ref}")
@@ -1569,7 +1570,8 @@ def check_consensus_io(input_consensus, input_pileup, output_tsv, sample, replic
 
 def merge_variant_calls(input, output):
     if len(input) == 0:
-        Path(output)
+        Path(output).touch()
+        return
     dfs = []
     for fp in input:
         parts = fp.split("/")

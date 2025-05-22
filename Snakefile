@@ -11,10 +11,8 @@ import pandas as pd
 
 if not os.path.exists("data/file_manifest.json"):
     print("ERROR: 'data/file_manifest.json' not found.")
-    print("Please generate it by running:")
-    print("  python mlip/dataflow.py flow")
-    print("Please also run the checker to ensure you are properly configured:")
-    print("  python mlip/dataflow.py flow")
+    print("Please configure the pipeline. You can see your status by running:")
+    print("  python mlip/dataflow.py check")
     sys.exit(1)
 
 
