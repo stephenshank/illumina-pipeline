@@ -1,12 +1,12 @@
 reference	segment_key	genbank_accession
-h5n1	ha	PQ719273.1
-h5n1	mp	PQ719276.1
-h5n1	na	PQ719275.1
-h5n1	np	PQ719274.1
-h5n1	ns	PQ719277.1
-h5n1	pa	PQ719272.1
-h5n1	pb1	PQ719271.1
-h5n1	pb2	PQ719270.1
+h5n1	ha	AF144305.1
+h5n1	mp	AF144306.1
+h5n1	na	AF144304.1
+h5n1	np	AF144303.1
+h5n1	ns	AF144307.1
+h5n1	pa	AF144302.1
+h5n1	pb1	AF144301.1
+h5n1	pb2	AF144300.1
 h3n2	pb2	OQ990372.1
 h3n2	pb1	OQ990373.1
 h3n2	pa	OQ990374.1
@@ -15,3 +15,4 @@ h3n2	np	OQ990376.1
 h3n2	na	OQ990377.1
 h3n2	mp	OQ990378.1
 h3n2	ns	OQ990379.1
+sarscov2	genome	NC_045512.2
